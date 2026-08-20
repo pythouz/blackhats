@@ -1,0 +1,72 @@
+/* =========================================================
+   Pulse — state.js
+   متغيرات الحالة العامة المشتركة بين كل الملفات
+   ========================================================= */
+
+// ============================
+// 2. الحالة العامة
+// ============================
+
+let secretKeyHex = null;
+let pk = null;
+let npub = null;
+let usingNip07 = false;
+const storageKey = 'pulse_nsec_hex';
+
+const pool = new NostrTools.SimplePool();
+
+// الحالة الأساسية
+const seenEvents = new Set();
+const renderedPosts = new Map();      // postId -> HTMLElement
+const postScores = new Map();         // postId -> number
+const profileCache = new Map();
+const postStats = new Map();          // postId -> { likes, replies, createdAt, myLikeEventId }
+const postContentMap = new Map();     // postId -> { content, created_at }
+
+// نظام إعجابات حقيقي
+const postLikers = new Map();         // postId -> Map(pubkey -> likeEventId)
+const likeEventIndex = new Map();     // likeEventId -> { postId, pubkey }
+const tombstonedEvents = new Set();   // eventIds اتحذفت
+
+// ردود معلقة (لحل مشكلة الرفرش)
+const pendingRepliesMap = new Map();  // rootId -> [event, ...]
+
+function initPostState(id, createdAt) {
+    postStats.set(id, { likes: 0, replies: 0, createdAt, myLikeEventId: null });
+    postLikers.set(id, new Map());
+}
+
+let postsSubscription = null;
+let reactionsSubscription = null;
+let reactionResubscribeTimer = null;
+
+function scheduleReactionResubscribe() {
+    if (reactionResubscribeTimer) clearTimeout(reactionResubscribeTimer);
+    reactionResubscribeTimer = setTimeout(() => {
+        reactionResubscribeTimer = null;
+        startReactionSubscription();
+    }, 700);
+}
+
+// الغرف الصوتية
+const discoveredRooms = new Map();
+let directorySubscription = null;
+let directoryCleanupInterval = null;
+
+let localStream = null;
+let peer = null;
+let currentRoom = null;
+let roomSubscription = null;
+let myPeerId = null;
+let activeCalls = new Map();
+let announcedPeers = new Set();
+let isMuted = false;
+let isJoiningRoom = false;
+
+let bgAudioContext = null;
+let silentAudioElement = null;
+let wakeLock = null;
+
+// تحميل المزيد
+let oldestTimestamp = null;
+let loadingMore = false;
