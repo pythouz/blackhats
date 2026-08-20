@@ -67,7 +67,7 @@ function removeBanner() {
 }
 
 // ============================
-// 20. نظام الحظر — واجهة المستخدم
+// 20. نظام الحظر — واجهة المستخدم (بدون إشعارات)
 // ============================
 
 /**
@@ -87,19 +87,16 @@ function addBanButtonToPost(postElement, postPubkey) {
         toggleBanUser(postPubkey);
     };
 
-    // نبحث عن منطقة الأزرار في المنشور (نفترض وجود عنصر بالكلاس "post-actions")
-    // يمكن تعديل المحدد حسب بنية HTML الفعلية
     const actions = postElement.querySelector('.post-actions');
     if (actions) {
         actions.appendChild(btn);
     } else {
-        // إذا لم يوجد، نضيفه في نهاية المنشور
         postElement.appendChild(btn);
     }
 }
 
 /**
- * تبديل حالة الحظر لمستخدم معين (تنشر حدث ban/unban)
+ * تبديل حالة الحظر لمستخدم معين (تنشر حدث ban/unban) - بدون إشعارات
  */
 async function toggleBanUser(targetPubkey) {
     if (pk !== ADMIN_PUBKEY) {
@@ -132,13 +129,13 @@ async function toggleBanUser(targetPubkey) {
         };
         const signed = await signEvent(eventTemplate);
         await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
-        showToast(`تم ${action === 'ban' ? 'حظر' : 'إلغاء حظر'} المستخدم`, 'success');
+        // لا نعرض أي إشعار نجاح
         // معالجة الحدث محلياً لتحديث القائمة والواجهة
         processBanEvent(signed);
-        // إعادة ترتيب الفيد (اختياري)
         if (typeof reorderFeed === 'function') reorderFeed();
     } catch (e) {
         console.error('[Moderation] فشل نشر حدث الحظر:', e);
+        // إشعار خطأ فقط (يمكن إزالته أيضاً إذا أردت)
         showToast('فشل نشر الحدث: ' + getErrorMessage(e), 'error');
     }
 }
