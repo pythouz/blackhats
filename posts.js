@@ -19,6 +19,8 @@ function startFeed() {
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
                 const hasTag = event.tags?.some(t => t[0] === 't' && t[1] === APP_TAG);
                 if (!hasTag) return;
+                // ===== فلتر الحظر =====
+                if (bannedPubkeys.has(event.pubkey)) return; // تجاهل منشورات المحظورين
                 // معالجة الردود عبر handleIncomingReply بدلاً من عرضها كمنشورات
                 if (isReplyEvent(event)) {
                     handleIncomingReply(event);
@@ -95,7 +97,7 @@ function renderPost(event) {
     const div = document.createElement('div');
     div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
     div.dataset.postId = event.id;
-    div.dataset.author = event.pubkey;
+    div.dataset.pubkey = event.pubkey; // إضافة pubkey لتسهيل الفلتر
 
     div.innerHTML = `
         <div class="flex justify-between items-start mb-4">
@@ -133,6 +135,9 @@ function renderPost(event) {
     limitMap(renderedPosts, MAX_RENDERED_POSTS);
     insertPostCard(div);
     fetchProfiles([event.pubkey]);
+
+    // إضافة زر الحظر
+    addBanButtonToPost(div, event.pubkey);
 
     // بعد عرض المنشور، حاول معالجة أي ردود معلقة له
     processPendingReplies(event.id);
@@ -177,9 +182,6 @@ function handleDeleteEvent(event) {
     const postStat = postStats.get(info.postId);
     if (!postStat) return;
     if (info.pubkey === pk) postStat.myLikeEventId = null;
-    // نفس منطق likePost/handleIncomingLike في reactions.js: إلغاء إعجاب
-    // (عبر حدث حذف) مبيعملش reorderFeed() فورية عشان البوست يفضل ثابت
-    // مكانه في الفيد.
     updatePostScore(info.postId);
     syncLikeCountUI(info.postId);
     if (info.pubkey === pk) updateLikeUI(info.postId, false);
@@ -466,6 +468,8 @@ async function loadMorePosts() {
                     handleIncomingReply(event);
                     return;
                 }
+                // فلتر الحظر
+                if (bannedPubkeys.has(event.pubkey)) return;
                 if (seenEvents.has(event.id)) return;
                 seenEvents.add(event.id);
                 initPostState(event.id, event.created_at);
