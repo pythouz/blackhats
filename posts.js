@@ -177,10 +177,12 @@ function handleDeleteEvent(event) {
     const postStat = postStats.get(info.postId);
     if (!postStat) return;
     if (info.pubkey === pk) postStat.myLikeEventId = null;
+    // نفس منطق likePost/handleIncomingLike في reactions.js: إلغاء إعجاب
+    // (عبر حدث حذف) مبيعملش reorderFeed() فورية عشان البوست يفضل ثابت
+    // مكانه في الفيد.
     updatePostScore(info.postId);
     syncLikeCountUI(info.postId);
     if (info.pubkey === pk) updateLikeUI(info.postId, false);
-    reorderFeed();
 }
 
 function removePostFromUI(postId) {
