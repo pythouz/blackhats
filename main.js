@@ -95,7 +95,6 @@ async function loadBanList() {
         });
         // تعيين مهلة احتياطية في حال لم يتم استدعاء oneose/onclose
         setTimeout(() => {
-            // نحاول إنهاء الاشتراك بعد 10 ثواني
             try { sub.close(); } catch(e) {}
             resolve();
         }, 10000);
@@ -121,17 +120,17 @@ function subscribeToBanEvents() {
 }
 
 /**
- * معالجة حدث حظر وارد (تحديث bannedPubkeys والواجهة)
+ * معالجة حدث حظر وارد (تحديث bannedPubkeys والواجهة) - بدون إشعارات
  */
 function processBanEvent(event) {
     const target = event.tags.find(t => t[0] === 'p')?.[1];
     if (!target) return;
     if (event.content === 'ban') {
         bannedPubkeys.add(target);
-        showToast(`تم حظر المستخدم ${target.slice(0,8)}...`, 'warning');
+        // إشعار محذوف
     } else if (event.content === 'unban') {
         bannedPubkeys.delete(target);
-        showToast(`تم إلغاء حظر المستخدم ${target.slice(0,8)}...`, 'info');
+        // إشعار محذوف
     } else {
         return;
     }
