@@ -14,8 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await initIdentity();
-
-    // ---- تحميل قائمة الحظر قبل أي شيء آخر ----
     await loadBanList();
     subscribeToBanEvents();
 
@@ -46,9 +44,6 @@ if ('serviceWorker' in navigator) {
 
 let banSubscription = null;
 
-/**
- * تحميل قائمة الحظر من الـ relays باستخدام pool.subscribeMany
- */
 async function loadBanList() {
     return new Promise((resolve) => {
         const events = [];
@@ -57,7 +52,6 @@ async function loadBanList() {
                 events.push(event);
             },
             oneose: () => {
-                // ترتيب الأحداث تصاعدياً حسب الوقت
                 events.sort((a, b) => a.created_at - b.created_at);
                 bannedPubkeys.clear();
                 for (const ev of events) {
@@ -74,7 +68,6 @@ async function loadBanList() {
                 resolve();
             },
             onclose: () => {
-                // في حالة الإغلاق دون oneose، ننفذ نفس المنطق
                 if (events.length > 0) {
                     events.sort((a, b) => a.created_at - b.created_at);
                     bannedPubkeys.clear();
@@ -93,7 +86,6 @@ async function loadBanList() {
                 resolve();
             }
         });
-        // تعيين مهلة احتياطية في حال لم يتم استدعاء oneose/onclose
         setTimeout(() => {
             try { sub.close(); } catch(e) {}
             resolve();
@@ -101,9 +93,6 @@ async function loadBanList() {
     });
 }
 
-/**
- * الاشتراك في أحداث الحظر الجديدة (تحديث فوري) باستخدام pool.subscribeMany
- */
 function subscribeToBanEvents() {
     if (banSubscription) {
         try { banSubscription.close(); } catch(e) {}
@@ -113,36 +102,25 @@ function subscribeToBanEvents() {
             processBanEvent(event);
         },
         oneose: () => {
-            // قد ينتهي الاشتراك، نعيد فتحه بعد فترة
             setTimeout(subscribeToBanEvents, 5000);
         }
     });
 }
 
-/**
- * معالجة حدث حظر وارد (تحديث bannedPubkeys والواجهة) - بدون إشعارات
- */
 function processBanEvent(event) {
     const target = event.tags.find(t => t[0] === 'p')?.[1];
     if (!target) return;
     if (event.content === 'ban') {
         bannedPubkeys.add(target);
-        // إشعار محذوف
     } else if (event.content === 'unban') {
         bannedPubkeys.delete(target);
-        // إشعار محذوف
     } else {
         return;
     }
-    // تحديث الفلتر على الفيد الحالي
     applyBanFilter();
-    // تحديث لوحة التحكم إذا كانت مفتوحة
     if (adminPanelOpen) renderBannedList();
 }
 
-/**
- * تطبيق فلتر الحظر على المنشورات المعروضة حالياً
- */
 function applyBanFilter() {
     for (const [postId, element] of renderedPosts) {
         const pubkey = element.dataset?.pubkey;
@@ -150,11 +128,10 @@ function applyBanFilter() {
         const isBanned = bannedPubkeys.has(pubkey);
         element.style.display = isBanned ? 'none' : '';
     }
-    // يمكن أيضاً إخفاء الردود إذا أردت، لكننا نكتفي بالمنشورات الرئيسية حالياً
 }
 
 // ============================
-// ربط الدوال للنطاق العام (بما فيها دوال الحظر)
+// ربط الدوال للنطاق العام
 // ============================
 
 window.publishPost = publishPost;
@@ -194,7 +171,6 @@ window.handleEditFileSelect = handleEditFileSelect;
 window.removeEditAttachment = removeEditAttachment;
 window.loadMorePosts = loadMorePosts;
 
-// ربط دوال الحظر
 window.toggleBanUser = toggleBanUser;
 window.openAdminPanel = openAdminPanel;
 window.closeAdminPanel = closeAdminPanel;
