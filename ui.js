@@ -1,6 +1,6 @@
 /* =========================================================
    Pulse — ui.js
-   التنقل بين الصفحات، المظهر (الوضع الليلي)، ودوال واجهة إضافية
+   التنقل بين الصفحات، المظهر، ودوال واجهة إضافية
    ========================================================= */
 
 // ============================
@@ -71,15 +71,21 @@ function removeBanner() {
 // ============================
 
 /**
- * تُضاف زر الحظر/إلغاء الحظر إلى عنصر المنشور إذا كان المستخدم الحالي هو الأدمن
+ * تُضاف زر الحظر/إلغاء الحظر إلى منطقة الأزرار (بجانب الإعجاب والتعليق)
  */
 function addBanButtonToPost(postElement, postPubkey) {
-    // لا نضيف الزر إذا لم يكن الأدمن أو كان المنشور لنفسه
     if (pk !== ADMIN_PUBKEY || pk === postPubkey) return;
+
+    // البحث عن حاوية الأزرار (باستخدام الكلاس المخصص)
+    const actionsContainer = postElement.querySelector('.post-actions');
+    if (!actionsContainer) return;
+
+    // إذا كان الزر موجوداً مسبقاً، لا نضيفه مرة أخرى
+    if (actionsContainer.querySelector('.ban-button')) return;
 
     const isBanned = bannedPubkeys.has(postPubkey);
     const btn = document.createElement('button');
-    btn.className = 'text-gray-400 hover:text-red-500 dark:hover:text-red-400 text-sm ml-2 transition-colors';
+    btn.className = 'ban-button flex items-center gap-1 hover:text-red-500 dark:hover:text-red-400 transition text-sm';
     btn.innerHTML = `<i class="fas ${isBanned ? 'fa-user-check' : 'fa-user-slash'}"></i>`;
     btn.title = isBanned ? 'إلغاء حظر هذا المستخدم' : 'حظر هذا المستخدم';
     btn.onclick = (e) => {
@@ -87,16 +93,12 @@ function addBanButtonToPost(postElement, postPubkey) {
         toggleBanUser(postPubkey);
     };
 
-    const actions = postElement.querySelector('.post-actions');
-    if (actions) {
-        actions.appendChild(btn);
-    } else {
-        postElement.appendChild(btn);
-    }
+    // إضافة الزر كأول عنصر في الحاوية (أو آخر عنصر)
+    actionsContainer.appendChild(btn);
 }
 
 /**
- * تبديل حالة الحظر لمستخدم معين (تنشر حدث ban/unban) - بدون إشعارات
+ * تبديل حالة الحظر - بدون إشعارات نجاح، فقط أخطاء أساسية
  */
 async function toggleBanUser(targetPubkey) {
     if (pk !== ADMIN_PUBKEY) {
@@ -129,20 +131,19 @@ async function toggleBanUser(targetPubkey) {
         };
         const signed = await signEvent(eventTemplate);
         await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
-        // لا نعرض أي إشعار نجاح
-        // معالجة الحدث محلياً لتحديث القائمة والواجهة
+        // معالجة الحدث محلياً وتحديث الواجهة (بدون إشعار)
         processBanEvent(signed);
         if (typeof reorderFeed === 'function') reorderFeed();
     } catch (e) {
         console.error('[Moderation] فشل نشر حدث الحظر:', e);
-        // إشعار خطأ فقط (يمكن إزالته أيضاً إذا أردت)
         showToast('فشل نشر الحدث: ' + getErrorMessage(e), 'error');
     }
 }
 
-/**
- * لوحة تحكم الأدمن (نافذة منبثقة تعرض المحظورين)
- */
+// ============================
+// لوحة تحكم الأدمن
+// ============================
+
 let adminPanelOpen = false;
 
 function openAdminPanel() {
