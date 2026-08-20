@@ -72,10 +72,6 @@ async function likePost(targetId, targetPubkey) {
                 likeEventIndex.delete(postStat.myLikeEventId);
                 likers.delete(pk);
                 postStat.myLikeEventId = null;
-                // بنحدّث السكور الداخلي (يفيد وقت إعادة الترتيب الطبيعية عند
-                // تحميل/وصول بوستات جديدة) بس من غير ما نستدعي reorderFeed()
-                // هنا، عشان البوست ميقفزش من مكانه قدام المستخدم لحظة الإعجاب/
-                // إلغاء الإعجاب — بالظبط زي سلوك فيسبوك.
                 updatePostScore(targetId);
                 updateLikeUI(targetId, false);
                 syncLikeCountUI(targetId);
@@ -95,8 +91,6 @@ async function likePost(targetId, targetPubkey) {
         likers.set(pk, likeEvent.id);
         likeEventIndex.set(likeEvent.id, { postId: targetId, pubkey: pk });
         postStat.myLikeEventId = likeEvent.id;
-        // نفس الفكرة: نحدّث السكور من غير reorderFeed() فورية عشان البوست
-        // يفضل ثابت في مكانه لحظة الضغط على إعجاب.
         updatePostScore(targetId);
         updateLikeUI(targetId, true);
         syncLikeCountUI(targetId);
@@ -116,6 +110,8 @@ function startReactionSubscription() {
         reactionsSubscription = pool.subscribeMany(RELAYS, [{ kinds: [7, 1, 5], '#e': postIds, limit: 500 }], {
             onevent: event => {
                 if (!event?.id) return;
+                // فلتر الحظر للتفاعلات
+                if (bannedPubkeys.has(event.pubkey)) return;
                 if (event.kind === 7) handleIncomingLike(event);
                 if (event.kind === 1) handleIncomingReply(event);
                 if (event.kind === 5) handleDeleteEvent(event);
@@ -144,9 +140,6 @@ function handleIncomingLike(event) {
     likeEventIndex.set(event.id, { postId: targetId, pubkey: event.pubkey });
     if (event.pubkey === pk) postStat.myLikeEventId = event.id;
 
-    // إعجاب جاي من مستخدم تاني كمان منعملوش reorderFeed() فورية لنفس السبب
-    // (ثبات ترتيب الفيد وقت التفاعل). الترتيب هيتحدّث طبيعي مع أي إعادة
-    // ترتيب لاحقة (بوست جديد، تحميل صفحة تانية... إلخ).
     updatePostScore(targetId);
     syncLikeCountUI(targetId);
     if (event.pubkey === pk) updateLikeUI(targetId, true);
