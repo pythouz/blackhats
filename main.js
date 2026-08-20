@@ -47,39 +47,69 @@ if ('serviceWorker' in navigator) {
 let banSubscription = null;
 
 /**
- * تحميل قائمة الحظر من الـ relays
+ * تحميل قائمة الحظر من الـ relays باستخدام pool.subscribeMany
  */
 async function loadBanList() {
-    try {
-        const filters = { kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY] };
-        const events = await pool.list(RELAYS, [filters]);
-        events.sort((a, b) => a.created_at - b.created_at);
-        bannedPubkeys.clear();
-        for (const ev of events) {
-            const target = ev.tags.find(t => t[0] === 'p')?.[1];
-            if (!target) continue;
-            if (ev.content === 'ban') {
-                bannedPubkeys.add(target);
-            } else if (ev.content === 'unban') {
-                bannedPubkeys.delete(target);
+    return new Promise((resolve) => {
+        const events = [];
+        const sub = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY] }], {
+            onevent: (event) => {
+                events.push(event);
+            },
+            oneose: () => {
+                // ترتيب الأحداث تصاعدياً حسب الوقت
+                events.sort((a, b) => a.created_at - b.created_at);
+                bannedPubkeys.clear();
+                for (const ev of events) {
+                    const target = ev.tags.find(t => t[0] === 'p')?.[1];
+                    if (!target) continue;
+                    if (ev.content === 'ban') {
+                        bannedPubkeys.add(target);
+                    } else if (ev.content === 'unban') {
+                        bannedPubkeys.delete(target);
+                    }
+                }
+                console.log('[Moderation] تحميل قائمة الحظر:', bannedPubkeys.size, 'محظور');
+                applyBanFilter();
+                resolve();
+            },
+            onclose: () => {
+                // في حالة الإغلاق دون oneose، ننفذ نفس المنطق
+                if (events.length > 0) {
+                    events.sort((a, b) => a.created_at - b.created_at);
+                    bannedPubkeys.clear();
+                    for (const ev of events) {
+                        const target = ev.tags.find(t => t[0] === 'p')?.[1];
+                        if (!target) continue;
+                        if (ev.content === 'ban') {
+                            bannedPubkeys.add(target);
+                        } else if (ev.content === 'unban') {
+                            bannedPubkeys.delete(target);
+                        }
+                    }
+                    console.log('[Moderation] تحميل قائمة الحظر (onclose):', bannedPubkeys.size, 'محظور');
+                    applyBanFilter();
+                }
+                resolve();
             }
-        }
-        console.log('[Moderation] تحميل قائمة الحظر:', bannedPubkeys.size, 'محظور');
-        applyBanFilter();
-    } catch (e) {
-        console.error('[Moderation] فشل تحميل قائمة الحظر:', e);
-    }
+        });
+        // تعيين مهلة احتياطية في حال لم يتم استدعاء oneose/onclose
+        setTimeout(() => {
+            // نحاول إنهاء الاشتراك بعد 10 ثواني
+            try { sub.close(); } catch(e) {}
+            resolve();
+        }, 10000);
+    });
 }
 
 /**
- * الاشتراك في أحداث الحظر الجديدة (تحديث فوري)
+ * الاشتراك في أحداث الحظر الجديدة (تحديث فوري) باستخدام pool.subscribeMany
  */
 function subscribeToBanEvents() {
     if (banSubscription) {
         try { banSubscription.close(); } catch(e) {}
     }
-    const filters = { kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY] };
-    banSubscription = pool.subscribe(RELAYS, [filters], {
+    banSubscription = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY] }], {
         onevent: (event) => {
             processBanEvent(event);
         },
@@ -171,3 +201,5 @@ window.openAdminPanel = openAdminPanel;
 window.closeAdminPanel = closeAdminPanel;
 window.renderBannedList = renderBannedList;
 window.addBanButtonToPost = addBanButtonToPost;
+window.processBanEvent = processBanEvent;
+window.applyBanFilter = applyBanFilter;
