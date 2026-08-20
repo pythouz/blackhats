@@ -31,6 +31,11 @@ const tombstonedEvents = new Set();   // eventIds اتحذفت
 // ردود معلقة (لحل مشكلة الرفرش)
 const pendingRepliesMap = new Map();  // rootId -> [event, ...]
 
+// ============================
+// نظام الحظر (جديد)
+// ============================
+const bannedPubkeys = new Set();      // مجموعة المفاتيح العامة المحظورة
+
 function initPostState(id, createdAt) {
     postStats.set(id, { likes: 0, replies: 0, createdAt, myLikeEventId: null });
     postLikers.set(id, new Map());
