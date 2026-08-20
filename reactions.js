@@ -72,10 +72,13 @@ async function likePost(targetId, targetPubkey) {
                 likeEventIndex.delete(postStat.myLikeEventId);
                 likers.delete(pk);
                 postStat.myLikeEventId = null;
+                // بنحدّث السكور الداخلي (يفيد وقت إعادة الترتيب الطبيعية عند
+                // تحميل/وصول بوستات جديدة) بس من غير ما نستدعي reorderFeed()
+                // هنا، عشان البوست ميقفزش من مكانه قدام المستخدم لحظة الإعجاب/
+                // إلغاء الإعجاب — بالظبط زي سلوك فيسبوك.
                 updatePostScore(targetId);
                 updateLikeUI(targetId, false);
                 syncLikeCountUI(targetId);
-                reorderFeed();
                 showToast('تم إلغاء الإعجاب', 'info');
             } catch (error) {
                 showToast('فشل إلغاء الإعجاب: ' + getErrorMessage(error), 'error');
@@ -92,12 +95,13 @@ async function likePost(targetId, targetPubkey) {
         likers.set(pk, likeEvent.id);
         likeEventIndex.set(likeEvent.id, { postId: targetId, pubkey: pk });
         postStat.myLikeEventId = likeEvent.id;
+        // نفس الفكرة: نحدّث السكور من غير reorderFeed() فورية عشان البوست
+        // يفضل ثابت في مكانه لحظة الضغط على إعجاب.
         updatePostScore(targetId);
         updateLikeUI(targetId, true);
         syncLikeCountUI(targetId);
         stats.likeButton.classList.add('scale-110');
         setTimeout(() => stats.likeButton.classList.remove('scale-110'), 180);
-        reorderFeed();
         showToast('تم الإعجاب ❤️', 'success');
     } catch (error) {
         showToast('فشل الإعجاب: ' + getErrorMessage(error), 'error');
@@ -140,10 +144,12 @@ function handleIncomingLike(event) {
     likeEventIndex.set(event.id, { postId: targetId, pubkey: event.pubkey });
     if (event.pubkey === pk) postStat.myLikeEventId = event.id;
 
+    // إعجاب جاي من مستخدم تاني كمان منعملوش reorderFeed() فورية لنفس السبب
+    // (ثبات ترتيب الفيد وقت التفاعل). الترتيب هيتحدّث طبيعي مع أي إعادة
+    // ترتيب لاحقة (بوست جديد، تحميل صفحة تانية... إلخ).
     updatePostScore(targetId);
     syncLikeCountUI(targetId);
     if (event.pubkey === pk) updateLikeUI(targetId, true);
-    reorderFeed();
 }
 
 function getTagValue(tags, name) {
@@ -175,19 +181,26 @@ function processAllPendingReplies() {
 
 function processPendingReplies(postId) {
     if (!pendingRepliesMap.has(postId)) return;
-    const replies = pendingRepliesMap.get(postId);
-    const toRemove = [];
-    for (let i = 0; i < replies.length; i++) {
-        const event = replies[i];
-        const { rootId, parentId } = getReplyTargets(event.tags);
-        if (attemptRenderReply(event, rootId, parentId)) {
-            toRemove.push(i);
+    // بنعمل تمرير متكرر (fixed-point loop) لحد ما تفضل مفيش أي تقدّم.
+    // ده مهم لأن ترتيب وصول الأحداث بعد الريفرش مش مضمون يبقى ترتيب زمني
+    // (الردود الأحدث ممكن توصل قبل الرد الأب بتاعها)، فالتمرير الواحد
+    // القديم كان بيسيب ردود متداخلة عالقة، وبالتالي بتقع على الروت (attemptRenderReply
+    // كانت بتعمل fallback غلط). دلوقتي بنكرر لحد ما كل حاجة ممكنة تتحل.
+    let progress = true;
+    while (progress) {
+        progress = false;
+        const replies = pendingRepliesMap.get(postId);
+        if (!replies || !replies.length) break;
+        for (let i = replies.length - 1; i >= 0; i--) {
+            const event = replies[i];
+            const { rootId, parentId } = getReplyTargets(event.tags);
+            if (attemptRenderReply(event, rootId, parentId)) {
+                replies.splice(i, 1);
+                progress = true;
+            }
         }
     }
-    for (let i = toRemove.length - 1; i >= 0; i--) {
-        replies.splice(toRemove[i], 1);
-    }
-    if (replies.length === 0) pendingRepliesMap.delete(postId);
+    if (pendingRepliesMap.get(postId)?.length === 0) pendingRepliesMap.delete(postId);
 }
 
 function attemptRenderReply(event, rootId, parentId) {
@@ -196,17 +209,21 @@ function attemptRenderReply(event, rootId, parentId) {
 
     let container = null;
     if (parentId && parentId !== rootId) {
+        // ده رد على تعليق (نستد) — لازم نلاقي التعليق الأب في الـ DOM فعلاً.
+        // قبل كده لو الأب لسه معملوش render (شائع بعد الريفرش لأن الردود
+        // الأحدث بتوصل الأول)، كان الكود بيعمل fallback ويحط الرد كتعليق
+        // منفصل تحت البوست مباشرة — وده سبب المشكلة اللي بتحصل بعد الريفرش.
+        // دلوقتي: لو الأب مش موجود لسه، منرجعش container فاضي، نستنى ونحاول
+        // تاني (الرد بيفضل pending لحد ما الأب يتعمله render).
         const parentElement = document.querySelector(`[data-reply-id="${CSS.escape(parentId)}"]`);
-        if (parentElement) {
-            container = parentElement.querySelector('.nested-replies');
-            if (!container) {
-                container = document.createElement('div');
-                container.className = 'nested-replies mt-2 space-y-2 mr-4 border-r-2 border-accent/20 pr-3';
-                parentElement.appendChild(container);
-            }
+        if (!parentElement) return false;
+        container = parentElement.querySelector('.nested-replies');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'nested-replies mt-2 space-y-2 mr-4 border-r-2 border-accent/20 pr-3';
+            parentElement.appendChild(container);
         }
-    }
-    if (!container) {
+    } else {
         container = rootCard.querySelector(`[data-replies="${CSS.escape(rootId)}"]`);
     }
     if (!container) return false;
@@ -237,8 +254,6 @@ function attemptRenderReply(event, rootId, parentId) {
         updatePostScore(rootId);
     }
 
-    processPendingReplies(event.id);
-
     if (event.pubkey === pk) {
         const topContainer = rootCard.querySelector(`[data-replies="${CSS.escape(rootId)}"]`);
         const toggleIcon = rootCard.querySelector('.reply-toggle-button .reply-toggle-icon');
@@ -262,7 +277,11 @@ function handleIncomingReply(event) {
         pendingRepliesMap.get(rootId).push(event);
     }
 
-    attemptRenderReply(event, rootId, parentId);
+    // نجرب نعالج كل الـ queue بتاع نفس الروت (مش بس الحدث ده لوحده) —
+    // كده لو الرد ده كان هو الحلقة الناقصة (parent) لردود تانية كانت
+    // عالقة قبل كده، هيتحلوا كلهم في نفس اللحظة بدل ما يفضلوا معلقين
+    // لحد أول عملية refresh/processAllPendingReplies تانية.
+    processPendingReplies(rootId);
 }
 
 // ============================
