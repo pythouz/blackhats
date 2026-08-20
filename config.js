@@ -22,3 +22,13 @@ const MAX_DISCOVERED_ROOMS = 50;
 const DISCOVERY_TAG = APP_TAG + ':room-directory';
 const ROOM_PRESENCE_TTL_MS = 90 * 1000;
 const INITIAL_FEED_LIMIT = 300;
+
+// ============================
+// 2. نظام الحظر (إضافة جديدة)
+// ============================
+
+// المفتاح العام للمدير (admin) بصيغة hex – تم تحويله من npub المعطى
+const ADMIN_PUBKEY = 'eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9';
+
+// نوع الحدث المخصص للحظر (يُستخدم كـ kind)
+const BAN_EVENT_KIND = 20001;  // يمكن تغييره إذا تعارض مع أنواع أخرى
