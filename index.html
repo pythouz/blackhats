@@ -262,6 +262,13 @@
                     <i class="fas fa-sun hidden dark:block text-yellow-400 text-base sm:text-lg"></i>
                 </button>
 
+                <!-- Admin Panel Button -->
+                <button onclick="openAdminPanel()"
+                        class="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0"
+                        aria-label="لوحة التحكم">
+                    <i class="fas fa-shield-alt text-accent text-base sm:text-lg"></i>
+                </button>
+
                 <!-- Settings -->
                 <button onclick="toggleSettings()"
                         class="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0"
@@ -601,6 +608,13 @@
                     class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
                 <i class="fas fa-microphone-lines text-2xl"></i>
                 <span class="text-xs font-bold">غرف صوتية</span>
+            </button>
+
+            <!-- Admin Panel Button in Bottom Nav -->
+            <button onclick="openAdminPanel()" id="nav-admin"
+                    class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-shield-alt text-2xl"></i>
+                <span class="text-xs font-bold">إدارة</span>
             </button>
 
         </div>
