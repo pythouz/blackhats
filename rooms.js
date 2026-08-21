@@ -1,410 +1,432 @@
 /* =========================================================
    Pulse — rooms.js
-   الغرف الصوتية عبر WebRTC + اكتشاف الغرف الحية
+   الغرف الصوتية WebRTC (عبر PeerJS و Nostr)
    ========================================================= */
 
 // ============================
-// 15. غرف الصوت WebRTC (مختصرة)
+// 16. الغرف الصوتية
 // ============================
 
-const WEBRTC_CONFIG = {
-    iceServers: [
-        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun3.l.google.com:19302', 'stun:stun4.l.google.com:19302'] },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' }
-    ],
-    iceTransportPolicy: 'all',
-    bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
-};
-
-function createPeer() {
-    return new Promise((resolve, reject) => {
-        if (peer && !peer.destroyed) { resolve(peer); return; }
-        const peerId = 'pulse-' + (pk || 'anon').slice(0, 8) + '-' + Math.random().toString(36).slice(2, 8);
-        let settled = false;
-        try {
-            peer = new Peer(peerId, { host: '0.peerjs.com', port: 443, secure: true, path: '/', debug: 1, config: WEBRTC_CONFIG });
-            peer.on('open', id => { myPeerId = id; if (!settled) { settled = true; resolve(peer); } });
-            peer.on('call', call => handleIncomingCall(call));
-            peer.on('error', error => { if (!settled) { settled = true; reject(error); } handlePeerError(error); });
-            peer.on('disconnected', () => showToast('انقطع اتصال الإشارة الصوتية', 'error'));
-        } catch (error) { reject(error); }
-    });
-}
-
-function handlePeerError(error) {
-    const type = error?.type || '';
-    const msg = getErrorMessage(error);
-    if (type === 'network' || type === 'server-error' || type === 'socket-error') showToast('مشكلة في الشبكة: ' + msg, 'error');
-    else if (type === 'unavailable-id') showToast('المعرف مستخدم، حاول مرة أخرى', 'error');
-    else if (type === 'browser-incompatible') showToast('المتصفح لا يدعم WebRTC', 'error');
-    else showToast('خطأ WebRTC: ' + msg, 'error');
-}
-
-async function toggleRoom(forceLeave = false) {
-    if (forceLeave) { await leaveRoom(); return; }
+async function toggleRoom() {
     if (isJoiningRoom) return;
-    if (currentRoom) { await leaveRoom(); return; }
     const input = $('room-input');
-    if (!input) return;
-    const roomName = safeRoomName(input.value);
-    if (!roomName) { showToast('اكتب اسم الغرفة أولاً', 'error'); return; }
-    await joinRoom(roomName);
+    const btn = $('btn-join-room');
+    if (!input || !btn) return;
+
+    if (currentRoom) {
+        await leaveRoom();
+        return;
+    }
+
+    const roomName = safeRoomName(input.value.trim());
+    if (!roomName) { showToast('أدخل اسم الغرفة', 'error'); return; }
+
+    isJoiningRoom = true;
+    btn.disabled = true;
+    btn.textContent = 'جاري الاتصال...';
+
+    try {
+        await joinRoom(roomName);
+    } catch (error) {
+        showToast('فشل الدخول: ' + getErrorMessage(error), 'error');
+        isJoiningRoom = false;
+        btn.disabled = false;
+        btn.textContent = 'دخول';
+    }
 }
 
 async function joinRoom(roomName) {
-    if (isJoiningRoom) return;
-    isJoiningRoom = true;
-    try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error('المتصفح لا يدعم getUserMedia');
-        showToast('جاري تشغيل الميكروفون...', 'info');
+    if (currentRoom) await leaveRoom();
+
+    // طلب المايكروفون
+    if (!localStream) {
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-        } catch (micError) {
-            if (micError.name === 'NotAllowedError') throw new Error('تم رفض صلاحية الميكروفون');
-            if (micError.name === 'NotFoundError') throw new Error('لم يتم العثور على ميكروفون');
-            if (micError.name === 'NotReadableError') throw new Error('الميكروفون مستخدم');
-            throw micError;
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        } catch (e) {
+            throw new Error('لا يمكن الوصول إلى المايكروفون: ' + e.message);
         }
-        await createPeer();
-        if (!peer || peer.destroyed) throw new Error('تعذر إنشاء PeerJS');
-        currentRoom = roomName;
-        localStorage.setItem('active_room', currentRoom);
-        announcedPeers.clear();
-        updateRoomUI(true);
-        startBackgroundAudioEngine();
-        requestSystemLock();
-        setupVAD();
-        await announcePresence();
-        listenForPeers();
-        if (window._presenceInterval) clearInterval(window._presenceInterval);
-        window._presenceInterval = setInterval(() => { if (currentRoom) announcePresence(); }, 45000);
-        showToast('دخلت غرفة "' + roomName + '" 🎙️', 'success');
-    } catch (error) {
-        console.error('[Room] فشل:', error);
-        showToast('فشل دخول الغرفة: ' + getErrorMessage(error), 'error');
-        cleanupRoomResources(false);
-    } finally { isJoiningRoom = false; }
-}
-
-function updateRoomUI(joined) {
-    const btn = $('btn-join-room');
-    const input = $('room-input');
-    const activeUi = $('active-room-ui');
-    const directoryUi = $('live-rooms-section');
-    if (joined) {
-        activeUi?.classList.remove('hidden');
-        directoryUi?.classList.add('hidden');
-        if (btn) { btn.textContent = 'مغادرة'; btn.classList.remove('bg-white', 'text-accent'); btn.classList.add('bg-red-500', 'text-white'); }
-        if (input) input.disabled = true;
-        if ($('current-room-name')) $('current-room-name').textContent = `غرفة: ${currentRoom}`;
-    } else {
-        activeUi?.classList.add('hidden');
-        directoryUi?.classList.remove('hidden');
-        if (btn) { btn.textContent = 'دخول'; btn.classList.remove('bg-red-500', 'text-white'); btn.classList.add('bg-white', 'text-accent'); }
-        if (input) input.disabled = false;
     }
-}
 
-function roomTag() { return `${APP_TAG}:voice:${safeRoomName(currentRoom)}`; }
+    currentRoom = roomName;
+    localStorage.setItem('active_room', roomName);
 
-async function announcePresence() {
-    if (!currentRoom || !myPeerId) return;
-    const event = await signEvent({
-        kind: ROOM_EVENT_KIND,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['t', roomTag()], ['t', DISCOVERY_TAG], ['room', safeRoomName(currentRoom)]],
-        content: JSON.stringify({ peerId: myPeerId, room: safeRoomName(currentRoom), npub, timestamp: Date.now() })
-    });
-    await pool.publish(RELAYS, event).catch(e => console.error('[Nostr Room] فشل presence:', e));
-}
-
-function listenForPeers() {
-    if (!currentRoom) return;
-    if (roomSubscription) try { roomSubscription.close(); } catch(e) {}
-    try {
-        roomSubscription = pool.subscribeMany(RELAYS, [{ kinds: [ROOM_EVENT_KIND], '#t': [roomTag()], limit: 100 }], {
-            onevent: event => handleRoomPresence(event),
-            oneose: () => {},
-            onclose: () => {}
+    // إنشاء Peer
+    if (!peer) {
+        myPeerId = 'pulse-' + pk.slice(0, 12) + '-' + Date.now().toString(36);
+        peer = new Peer(myPeerId, {
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
         });
-    } catch(e) { showToast('فشل اكتشاف المشاركين: ' + getErrorMessage(e), 'error'); }
-}
-
-function handleRoomPresence(event) {
-    if (!currentRoom || !event?.content || event.pubkey === pk) return;
-    let data;
-    try { data = JSON.parse(event.content); } catch(e) { return; }
-    if (!data.peerId) return;
-    if (data.room && safeRoomName(data.room) !== safeRoomName(currentRoom)) return;
-    if (announcedPeers.has(data.peerId)) return;
-    if (activeCalls.size >= 5) return;
-    announcedPeers.add(data.peerId);
-    if (myPeerId && myPeerId < data.peerId) connectToPeer(data.peerId, data.npub || data.peerId);
-}
-
-function connectToPeer(targetPeerId, displayName) {
-    if (!peer || peer.destroyed || !localStream || !currentRoom) return;
-    if (targetPeerId === myPeerId) return;
-    if (activeCalls.has(targetPeerId)) return;
-    try {
-        const call = peer.call(targetPeerId, localStream, { metadata: { room: currentRoom, caller: myPeerId } });
-        if (!call) return;
-        handleCallEvents(call, displayName);
-    } catch(e) { showToast('تعذر بدء الاتصال مع مشارك', 'error'); }
-}
-
-function handleIncomingCall(call) {
-    if (!currentRoom || !localStream) { try { call.close(); } catch(e) {} return; }
-    if (activeCalls.has(call.peer)) { try { call.close(); } catch(e) {} return; }
-    try {
-        call.answer(localStream);
-        handleCallEvents(call, call.peer);
-    } catch(e) { try { call.close(); } catch(e) {} }
-}
-
-function handleCallEvents(call, displayName) {
-    if (!call) return;
-    const peerId = call.peer;
-    activeCalls.set(peerId, call);
-    call.on('stream', stream => addPeerAudio(stream, peerId, displayName));
-    call.on('close', () => removePeerCall(peerId));
-    call.on('error', () => { showToast('انقطع اتصال مشارك', 'error'); removePeerCall(peerId); });
-}
-
-function addPeerAudio(stream, peerId, displayName) {
-    if (!stream) return;
-    let audio = document.getElementById(`audio-${peerId}`);
-    if (!audio) {
-        audio = document.createElement('audio');
-        audio.id = `audio-${peerId}`;
-        audio.autoplay = true;
-        audio.playsInline = true;
-        audio.setAttribute('playsinline', '');
-        audio.controls = false;
-        audio.volume = 1;
-        const container = $('audio-container');
-        if (container) container.appendChild(audio);
-        else document.body.appendChild(audio);
+        await new Promise((resolve, reject) => {
+            peer.on('open', resolve);
+            peer.on('error', reject);
+            setTimeout(() => reject(new Error('انتهى وقت انتظار Peer')), 10000);
+        });
     }
-    audio.srcObject = stream;
-    audio.play().catch(() => {
-        showToast('المتصفح منع تشغيل الصوت', 'error');
-        document.addEventListener('click', () => audio.play().catch(() => {}), { once: true });
-    });
-    addPeerToUI(peerId, displayName);
-    updatePeerCount();
-}
 
-function addPeerToUI(peerId, displayName) {
-    const list = $('peers-list');
-    if (!list) return;
-    const id = `participant-${peerId}`;
-    if (document.getElementById(id)) return;
-    const div = document.createElement('div');
-    div.id = id;
-    div.className = 'flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg';
-    div.innerHTML = `<div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div><span class="text-sm">${escapeHtml(String(displayName || peerId).slice(0, 16))}</span>`;
-    list.appendChild(div);
-}
+    // إعلان الحضور
+    await announcePresence(roomName);
 
-function removePeerCall(peerId) {
-    const audio = document.getElementById(`audio-${peerId}`);
-    if (audio) { try { audio.pause(); } catch(e) {} audio.srcObject = null; audio.remove(); }
-    const participant = document.getElementById(`participant-${peerId}`);
-    if (participant) participant.remove();
-    activeCalls.delete(peerId);
-    updatePeerCount();
-}
+    // بدء الاستماع للمشاركين
+    listenForPeers(roomName);
 
-function updatePeerCount() {
-    const count = $('peers-list')?.children.length || activeCalls.size;
-    const countElement = $('peer-count');
-    if (countElement) countElement.textContent = `الأشخاص: ${count}`;
-}
+    // تحديث الواجهة
+    const activeUI = $('active-room-ui');
+    const roomNameEl = $('current-room-name');
+    if (activeUI) activeUI.classList.remove('hidden');
+    if (roomNameEl) roomNameEl.textContent = roomName;
 
-function toggleMute() {
-    if (!localStream) { showToast('لا يوجد ميكروفون نشط', 'error'); return; }
-    const tracks = localStream.getAudioTracks();
-    if (!tracks.length) { showToast('لم يتم العثور على مسار صوتي', 'error'); return; }
-    isMuted = !isMuted;
-    tracks.forEach(track => { track.enabled = !isMuted; });
-    const btn = $('btn-mute');
+    const btn = $('btn-join-room');
     if (btn) {
-        btn.innerHTML = isMuted ? '<i class="fas fa-microphone-slash text-red-500"></i>' : '<i class="fas fa-microphone"></i>';
-        btn.classList.toggle('bg-red-100', isMuted);
-        btn.classList.toggle('text-red-500', isMuted);
+        btn.textContent = 'مغادرة';
+        btn.disabled = false;
     }
-    showToast(isMuted ? 'تم كتم الميكروفون' : 'تم تشغيل الميكروفون', 'success');
-}
 
-// دوال مساعدة للغرف
-function startBackgroundAudioEngine() {
-    try {
-        if (!bgAudioContext) {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) return;
-            bgAudioContext = new AudioContext();
-            if (bgAudioContext.state === 'suspended') bgAudioContext.resume().catch(() => {});
-            const osc = bgAudioContext.createOscillator();
-            const gain = bgAudioContext.createGain();
-            gain.gain.value = 0.00001;
-            osc.connect(gain);
-            gain.connect(bgAudioContext.destination);
-            osc.start();
-            silentAudioElement = document.createElement('audio');
-            silentAudioElement.id = 'voice-keepalive';
-            silentAudioElement.autoplay = true;
-            silentAudioElement.playsInline = true;
-            silentAudioElement.muted = true;
-            document.body.appendChild(silentAudioElement);
-            silentAudioElement.play().catch(() => {});
-        } else if (bgAudioContext.state === 'suspended') {
-            bgAudioContext.resume().catch(() => {});
-        }
-    } catch(e) { console.error('[Audio] KeepAlive Error:', e); }
-}
+    isJoiningRoom = false;
+    showToast('دخلت الغرفة: ' + roomName, 'success');
 
-async function requestSystemLock() {
-    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
-}
-
-function setupVAD() {
-    if (!localStream) return;
-    try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
-        const source = ctx.createMediaStreamSource(localStream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const interval = setInterval(() => {
-            if (!currentRoom) { clearInterval(interval); try { ctx.close(); } catch(e) {} return; }
-            if (isMuted) return;
-            analyser.getByteFrequencyData(data);
-            const vol = data.reduce((s, v) => s + v, 0) / data.length;
-            const status = $('vad-status');
-            if (status) status.textContent = vol > 12 ? 'الحالة: تتحدث الآن 🎙️' : 'الحالة: متصل (صامت)';
-        }, 200);
-    } catch(e) {}
+    // بدء VAD
+    startVAD();
 }
 
 async function leaveRoom() {
-    const prev = currentRoom;
+    if (!currentRoom) return;
+
+    // إيقاف المكالمات
+    for (const [peerId, call] of activeCalls) {
+        try { call.close(); } catch(e) {}
+    }
+    activeCalls.clear();
+    announcedPeers.clear();
+
+    // إلغاء الاشتراك
+    if (roomSubscription) {
+        try { roomSubscription.close(); } catch(e) {}
+        roomSubscription = null;
+    }
+
+    // إرسال حدث مغادرة (ephemeral)
+    try {
+        const event = await signEvent({
+            kind: ROOM_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['t', currentRoom], ['p', pk], ['status', 'leave']],
+            content: ''
+        });
+        await pool.publish(RELAYS, event);
+    } catch(e) {}
+
     currentRoom = null;
     localStorage.removeItem('active_room');
-    if (window._presenceInterval) { clearInterval(window._presenceInterval); window._presenceInterval = null; }
-    cleanupRoomResources(true);
-    updateRoomUI(false);
-    showToast(prev ? 'تمت مغادرة الغرفة' : 'تم الخروج', 'success');
-}
 
-function cleanupRoomResources(destroyPeer = true) {
-    if (roomSubscription) { try { roomSubscription.close(); } catch(e) {} roomSubscription = null; }
-    announcedPeers.clear();
-    activeCalls.forEach(call => { try { call.close(); } catch(e) {} });
-    activeCalls.clear();
-    document.querySelectorAll('#audio-container audio, body > audio[id^="audio-"]').forEach(a => { try { a.pause(); } catch(e) {} a.srcObject = null; a.remove(); });
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-    if (destroyPeer && peer) { try { peer.destroy(); } catch(e) {} peer = null; myPeerId = null; }
-    if (bgAudioContext) { try { bgAudioContext.close(); } catch(e) {} bgAudioContext = null; }
-    if (silentAudioElement) { try { silentAudioElement.pause(); } catch(e) {} silentAudioElement.remove(); silentAudioElement = null; }
-    if (wakeLock) { try { wakeLock.release(); } catch(e) {} wakeLock = null; }
-    isMuted = false;
-    const list = $('peers-list');
-    if (list) list.innerHTML = '';
-    const muteBtn = $('btn-mute');
-    if (muteBtn) { muteBtn.innerHTML = '<i class="fas fa-microphone"></i>'; muteBtn.classList.remove('bg-red-100', 'text-red-500'); }
-}
+    // تحديث الواجهة
+    const activeUI = $('active-room-ui');
+    if (activeUI) activeUI.classList.add('hidden');
 
-async function restoreRoomAfterRefresh() {
-    const saved = localStorage.getItem('active_room');
-    if (!saved) return;
+    const btn = $('btn-join-room');
+    if (btn) {
+        btn.textContent = 'دخول';
+        btn.disabled = false;
+    }
+
     const input = $('room-input');
-    if (input) input.value = saved;
-    currentRoom = null;
-    await sleep(800);
-    try { await joinRoom(safeRoomName(saved)); } catch(e) { showToast('كانت لديك غرفة مفتوحة. اضغط "دخول" لإعادة الاتصال.', 'info'); }
+    if (input) input.value = '';
+
+    showToast('غادرت الغرفة', 'info');
 }
 
-// ============================
-// 16. اكتشاف الغرف الحية (Room Directory)
-// ============================
+async function announcePresence(roomName) {
+    const event = await signEvent({
+        kind: ROOM_EVENT_KIND,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['t', roomName], ['p', pk], ['status', 'join'], ['peer', myPeerId]],
+        content: ''
+    });
+    await pool.publish(RELAYS, event);
+}
 
-function startRoomDirectory() {
-    if (directorySubscription) return;
-    try {
-        directorySubscription = pool.subscribeMany(RELAYS, [{ kinds: [ROOM_EVENT_KIND], '#t': [DISCOVERY_TAG], limit: 300 }], {
-            onevent: event => handleDirectoryPresence(event),
-            oneose: () => renderRoomDirectory(),
-            onclose: () => {}
-        });
-    } catch(e) { console.warn('[Room Directory] فشل:', e); }
-    if (!directoryCleanupInterval) {
-        directoryCleanupInterval = setInterval(() => { pruneRoomDirectory(); renderRoomDirectory(); }, 15000);
+function listenForPeers(roomName) {
+    if (roomSubscription) {
+        try { roomSubscription.close(); } catch(e) {}
     }
-}
 
-function handleDirectoryPresence(event) {
-    if (!event?.content) return;
-    let data;
-    try { data = JSON.parse(event.content); } catch(e) { return; }
-    const roomTag = event.tags.find(t => t[0] === 'room')?.[1];
-    const roomName = safeRoomName(roomTag || data.room || '');
-    if (!roomName || !data.peerId) return;
-    if (!discoveredRooms.has(roomName)) discoveredRooms.set(roomName, new Map());
-    discoveredRooms.get(roomName).set(event.pubkey, { peerId: data.peerId, lastSeen: Date.now() });
-    if (discoveredRooms.size > MAX_DISCOVERED_ROOMS) {
-        const oldest = Array.from(discoveredRooms.keys()).slice(0, discoveredRooms.size - MAX_DISCOVERED_ROOMS);
-        oldest.forEach(key => discoveredRooms.delete(key));
-    }
-    renderRoomDirectory();
-}
+    roomSubscription = pool.subscribeMany(RELAYS, [
+        { kinds: [ROOM_EVENT_KIND], '#t': [roomName] }
+    ], {
+        onevent: (event) => {
+            if (event.pubkey === pk) return;
+            const status = getTagValue(event.tags, 'status');
+            const peerId = getTagValue(event.tags, 'peer');
+            if (!peerId) return;
 
-function pruneRoomDirectory() {
-    const now = Date.now();
-    discoveredRooms.forEach((members, roomName) => {
-        members.forEach((info, pubkey) => {
-            if (now - info.lastSeen > ROOM_PRESENCE_TTL_MS) members.delete(pubkey);
-        });
-        if (members.size === 0) discoveredRooms.delete(roomName);
+            if (status === 'join') {
+                if (!announcedPeers.has(peerId)) {
+                    announcedPeers.add(peerId);
+                    connectToPeer(peerId, event.pubkey);
+                    updatePeersList();
+                }
+            } else if (status === 'leave') {
+                announcedPeers.delete(peerId);
+                const call = activeCalls.get(peerId);
+                if (call) {
+                    try { call.close(); } catch(e) {}
+                    activeCalls.delete(peerId);
+                }
+                updatePeersList();
+            }
+        },
+        oneose: () => {
+            setTimeout(() => listenForPeers(roomName), 5000);
+        }
     });
 }
 
-function renderRoomDirectory() {
-    const container = $('live-rooms-list');
-    const emptyState = $('live-rooms-empty');
-    if (!container) return;
-    pruneRoomDirectory();
-    const rooms = Array.from(discoveredRooms.entries())
-        .map(([name, members]) => ({ name, count: members.size }))
-        .filter(r => r.count > 0)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 12);
-    if (rooms.length === 0) {
-        container.innerHTML = '';
-        if (emptyState) emptyState.classList.remove('hidden');
+function connectToPeer(peerId, pubkey) {
+    if (activeCalls.has(peerId)) return;
+    if (peerId === myPeerId) return;
+
+    try {
+        const call = peer.call(peerId, localStream);
+        activeCalls.set(peerId, call);
+        call.on('stream', (remoteStream) => {
+            // إضافة الصوت البعيد
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            // تخزين مرجع للصوت
+            call._audioElement = audio;
+        });
+        call.on('close', () => {
+            activeCalls.delete(peerId);
+            announcedPeers.delete(peerId);
+            updatePeersList();
+        });
+        call.on('error', () => {
+            activeCalls.delete(peerId);
+            announcedPeers.delete(peerId);
+            updatePeersList();
+        });
+        updatePeersList();
+    } catch(e) {
+        console.warn('[Rooms] فشل الاتصال بـ', peerId, e);
+    }
+}
+
+function handleIncomingCall(call) {
+    const peerId = call.peer;
+    if (activeCalls.has(peerId)) {
+        call.close();
         return;
     }
-    if (emptyState) emptyState.classList.add('hidden');
-    container.innerHTML = rooms.map(room => `
-        <button onclick="joinDiscoveredRoom('${room.name.replace(/'/g, "\\'")}')"
-                class="w-full flex items-center justify-between gap-3 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition rounded-xl px-4 py-3 text-right">
-            <span class="flex items-center gap-2 text-sm font-bold text-gray-800 dark:text-gray-100">
-                <i class="fas fa-circle text-[8px] text-green-500 animate-pulse"></i> ${escapeHtml(room.name)}
-            </span>
-            <span class="text-xs text-gray-400 shrink-0"><i class="fas fa-user-friends ml-1"></i>${room.count}</span>
-        </button>
+    call.answer(localStream);
+    activeCalls.set(peerId, call);
+    announcedPeers.add(peerId);
+
+    call.on('stream', (remoteStream) => {
+        const audio = new Audio();
+        audio.srcObject = remoteStream;
+        audio.autoplay = true;
+        call._audioElement = audio;
+    });
+    call.on('close', () => {
+        activeCalls.delete(peerId);
+        announcedPeers.delete(peerId);
+        updatePeersList();
+    });
+    updatePeersList();
+}
+
+function updatePeersList() {
+    const list = $('peers-list');
+    const count = $('peer-count');
+    if (!list) return;
+
+    const peers = Array.from(announcedPeers);
+    if (count) count.textContent = `الأشخاص: ${peers.length + 1}`;
+
+    if (peers.length === 0) {
+        list.innerHTML = '<p class="text-xs text-gray-400">لا يوجد مشاركون آخرون</p>';
+        return;
+    }
+
+    list.innerHTML = peers.map(peerId => `
+        <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-xl">
+            <i class="fas fa-user-circle text-lg text-gray-400"></i>
+            <span class="text-sm truncate">${peerId.slice(0, 16)}...</span>
+        </div>
     `).join('');
 }
 
-function joinDiscoveredRoom(roomName) {
-    if (currentRoom) return;
+function toggleMute() {
+    if (!localStream) return;
+    isMuted = !isMuted;
+    localStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+    const btn = $('btn-mute');
+    if (btn) {
+        btn.innerHTML = isMuted ? '<i class="fas fa-microphone-slash"></i>' : '<i class="fas fa-microphone"></i>';
+        btn.classList.toggle('bg-red-500/20', isMuted);
+        btn.classList.toggle('text-red-500', isMuted);
+    }
+    showToast(isMuted ? 'كتم المايكروفون 🔇' : 'تفعيل المايكروفون 🎤', 'info');
+}
+
+function startVAD() {
+    // VAD بسيط - تغيير لون المؤشر عند الكلام
+    if (!localStream) return;
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(localStream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.fftSize);
+
+    function checkAudio() {
+        if (!currentRoom) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        const status = $('vad-status');
+        if (status) {
+            if (avg > 20) {
+                status.textContent = '🔊 تتحدث الآن';
+                status.className = 'text-xs text-green-500';
+            } else {
+                status.textContent = '🔇 ساكن';
+                status.className = 'text-xs text-gray-400';
+            }
+        }
+        requestAnimationFrame(checkAudio);
+    }
+    checkAudio();
+}
+
+// ============================
+// 17. اكتشاف الغرف المباشرة
+// ============================
+
+function startRoomDirectory() {
+    if (directorySubscription) {
+        try { directorySubscription.close(); } catch(e) {}
+    }
+
+    directorySubscription = pool.subscribeMany(RELAYS, [
+        { kinds: [ROOM_EVENT_KIND], limit: 100 }
+    ], {
+        onevent: (event) => {
+            const roomName = getTagValue(event.tags, 't');
+            if (!roomName) return;
+            const status = getTagValue(event.tags, 'status');
+            if (status !== 'join') return;
+
+            const now = Date.now();
+            const age = now - event.created_at * 1000;
+            if (age > ROOM_PRESENCE_TTL_MS) return;
+
+            if (!discoveredRooms.has(roomName)) {
+                discoveredRooms.set(roomName, { participants: new Set(), lastSeen: now });
+            }
+            const room = discoveredRooms.get(roomName);
+            room.participants.add(event.pubkey);
+            room.lastSeen = now;
+            renderRoomDirectory();
+        },
+        oneose: () => {
+            setTimeout(startRoomDirectory, 10000);
+        }
+    });
+
+    // تنظيف الغرف القديمة كل 30 ثانية
+    if (directoryCleanupInterval) clearInterval(directoryCleanupInterval);
+    directoryCleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [name, room] of discoveredRooms) {
+            if (now - room.lastSeen > ROOM_PRESENCE_TTL_MS) {
+                discoveredRooms.delete(name);
+            }
+        }
+        renderRoomDirectory();
+    }, 30000);
+}
+
+function renderRoomDirectory() {
+    const list = $('live-rooms-list');
+    const empty = $('live-rooms-empty');
+    if (!list || !empty) return;
+
+    const rooms = Array.from(discoveredRooms.entries())
+        .filter(([_, room]) => room.participants.size > 0)
+        .sort((a, b) => b[1].participants.size - a[1].participants.size);
+
+    if (rooms.length === 0) {
+        list.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+    empty.classList.add('hidden');
+
+    list.innerHTML = rooms.map(([name, room]) => `
+        <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-microphone text-accent"></i>
+                <span class="font-medium dark:text-white">${escapeHtml(name)}</span>
+                <span class="text-xs text-gray-400">(${room.participants.size} مشارك)</span>
+            </div>
+            <button onclick="joinDiscoveredRoom('${escapeHtml(name)}')" 
+                    class="bg-accent text-white px-4 py-1.5 rounded-full text-xs font-bold hover:opacity-90 transition">
+                دخول
+            </button>
+        </div>
+    `).join('');
+}
+
+async function joinDiscoveredRoom(roomName) {
     const input = $('room-input');
     if (input) input.value = roomName;
-    joinRoom(safeRoomName(roomName));
+    await toggleRoom();
 }
+
+function restoreRoomAfterRefresh() {
+    const savedRoom = localStorage.getItem('active_room');
+    if (savedRoom && !currentRoom) {
+        joinRoom(savedRoom).catch(e => {
+            console.warn('[Rooms] فشل استعادة الغرفة:', e);
+            localStorage.removeItem('active_room');
+        });
+    }
+}
+
+// ============================
+// 18. Wake Lock (منع النوم)
+// ============================
+
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('[WakeLock] نشط');
+        }
+    } catch(e) { console.warn('[WakeLock] غير مدعوم'); }
+}
+
+function releaseWakeLock() {
+    if (wakeLock) {
+        try { wakeLock.release(); } catch(e) {}
+        wakeLock = null;
+        console.log('[WakeLock] محرر');
+    }
+}
+
+// ربط WakeLock بحالة الغرفة
+const origJoinRoom = joinRoom;
+joinRoom = async function(roomName) {
+    await origJoinRoom(roomName);
+    await requestWakeLock();
+};
+
+const origLeaveRoom = leaveRoom;
+leaveRoom = async function() {
+    releaseWakeLock();
+    await origLeaveRoom();
+};
