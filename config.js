@@ -27,8 +27,8 @@ const INITIAL_FEED_LIMIT = 300;
 // 2. نظام الحظر (إضافة جديدة)
 // ============================
 
-// المفتاح العام للمدير (admin) بصيغة hex – تم تحويله من npub المعطى
-const ADMIN_PUBKEY = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
+// المفتاح العام للمدير (admin) بصيغة npub – سنقوم بتحويله إلى hex في main.js
+const ADMIN_PUBKEY_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
 
 // نوع الحدث المخصص للحظر (يُستخدم كـ kind)
 const BAN_EVENT_KIND = 20001;
