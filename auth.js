@@ -67,7 +67,6 @@ async function signEvent(eventTemplate) {
     return NostrTools.finalizeEvent(eventTemplate, secretKeyHex);
 }
 
-// تصدير/استيراد المفاتيح
 function exportKey() {
     if (usingNip07) { showToast('صدّر المفتاح من الامتداد نفسه', 'info'); return; }
     if (!secretKeyHex) { showToast('لا يوجد مفتاح للتصدير', 'error'); return; }
@@ -100,7 +99,6 @@ function importKey() {
         usingNip07 = false;
         updateIdentityUI();
         showToast('تم استيراد المفتاح', 'success');
-        // إعادة تحميل التغذية
         if (postsSubscription) { try { postsSubscription.close(); } catch(e) {} }
         seenEvents.clear();
         renderedPosts.clear();
