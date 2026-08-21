@@ -44,6 +44,9 @@ if ('serviceWorker' in navigator) {
 
 let banSubscription = null;
 
+/**
+ * تحميل قائمة الحظر من الـ relays باستخدام pool.subscribeMany
+ */
 async function loadBanList() {
     return new Promise((resolve) => {
         const events = [];
@@ -93,6 +96,9 @@ async function loadBanList() {
     });
 }
 
+/**
+ * الاشتراك في أحداث الحظر الجديدة (تحديث فوري)
+ */
 function subscribeToBanEvents() {
     if (banSubscription) {
         try { banSubscription.close(); } catch(e) {}
@@ -107,6 +113,9 @@ function subscribeToBanEvents() {
     });
 }
 
+/**
+ * معالجة حدث حظر وارد (بدون إشعارات)
+ */
 function processBanEvent(event) {
     const target = event.tags.find(t => t[0] === 'p')?.[1];
     if (!target) return;
@@ -121,6 +130,9 @@ function processBanEvent(event) {
     if (adminPanelOpen) renderBannedList();
 }
 
+/**
+ * تطبيق فلتر الحظر على المنشورات المعروضة حالياً
+ */
 function applyBanFilter() {
     for (const [postId, element] of renderedPosts) {
         const pubkey = element.dataset?.pubkey;
