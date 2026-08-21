@@ -63,18 +63,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isValid) {
         if (isCurrentUserAdmin()) {
             console.log('[Admin] ✅ المستخدم الحالي هو المدير');
-            // نعرض رسالة ترحيب
-            setTimeout(() => {
-                showToast('✅ مرحباً أيها المدير! يمكنك الآن حظر المستخدمين.', 'success');
-            }, 1500);
         } else {
             console.log('[Admin] ⚠️ المستخدم الحالي ليس المدير.');
             console.log('[Admin] 💡 لتتمكن من الحظر، سجل الدخول بمفتاح المدير الخاص.');
             console.log('[Admin] 🔑 اضغط على زر المفتاح 🔑 في الهيدر أو استخدم "استيراد مفتاح" في الإعدادات.');
-            // نعرض رسالة توجيهية
-            setTimeout(() => {
-                showToast('🔑 سجل الدخول كمستخدم المدير لتفعيل أزرار الحظر', 'info');
-            }, 3000);
         }
     }
 
