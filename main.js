@@ -17,8 +17,11 @@ function validateAdminPubkey() {
     try {
         const decoded = NostrTools.nip19.decode(ADMIN_NPUB);
         if (decoded.type !== 'npub') throw new Error('ليس npub');
-        const hex = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
-        window.ADMIN_PUBKEY_HEX = hex;
+        const hex = decoded.data; // nostr-tools 2.x يرجّع hex string جاهز مباشرة
+        if (typeof hex !== 'string' || hex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(hex)) {
+            throw new Error('نتيجة فك التشفير غير صالحة');
+        }
+        window.ADMIN_PUBKEY_HEX = hex.toLowerCase();
         console.log('[Admin] ✅ تم تحويل ADMIN_NPUB وتحميله:', hex);
         return true;
     } catch (e) {
