@@ -318,3 +318,8 @@ window.submitRegistration = submitRegistration;
 window.approveUser = approveUser;
 window.revokeUser = revokeUser;
 window.dismissRegistration = dismissRegistration;
+
+// دوال صفحة الملف الشخصي (جديد)
+window.openProfilePage = openProfilePage;
+window.closeProfilePage = closeProfilePage;
+window.loadMoreProfilePosts = loadMoreProfilePosts;
