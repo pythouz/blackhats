@@ -262,39 +262,21 @@
                 </button>
             </div>
 
-            <!-- Right side: theme, import key, npub display, avatar -->
-            <div class="flex items-center gap-1.5 flex-shrink-0">
-
-                <!-- Theme toggle -->
-                <button onclick="toggleTheme()"
-                        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0">
-                    <i class="fas fa-moon dark:hidden text-gray-700 text-base"></i>
-                    <i class="fas fa-sun hidden dark:block text-yellow-400 text-base"></i>
-                </button>
-
-                <!-- Import key button (رمز مفتاح) -->
-                <button onclick="importKeyFromHeader()"
-                        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0"
-                        title="استيراد مفتاح خاص">
-                    <i class="fas fa-key text-gray-700 dark:text-gray-300 text-base"></i>
-                </button>
-
-                <!-- NPUB display (click to copy) -->
-                <div onclick="copyNpub()"
-                     class="flex items-center gap-1.5 bg-gray-100/80 dark:bg-surface/80 px-2 sm:px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200/80 dark:hover:bg-gray-800 transition min-w-0 shrink">
-                    <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0"></span>
-                    <span id="npub-display" class="text-[10px] sm:text-xs font-mono text-gray-700 dark:text-gray-300 truncate max-w-[80px] sm:max-w-[120px]">جاري...</span>
-                    <span id="nip07-badge" class="hidden text-[8px] sm:text-[10px] font-bold bg-green-500/20 text-green-600 dark:text-green-400 px-1 py-0.5 rounded flex-shrink-0">NIP-07</span>
-                </div>
-
-                <!-- Profile avatar -->
-                <button onclick="openProfileModal()"
-                        class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-accent to-accent2 flex items-center justify-center shrink-0 shadow-md hover:shadow-lg transition">
-                    <img id="header-avatar-img" src="" alt="" class="hidden w-full h-full object-cover">
-                    <span id="header-avatar-fallback" class="text-white text-sm font-black">P</span>
-                </button>
-
+            <!-- NPUB display (click to copy) -->
+            <div onclick="copyNpub()"
+                 class="flex items-center gap-1.5 bg-gray-100/80 dark:bg-surface/80 px-2 sm:px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200/80 dark:hover:bg-gray-800 transition min-w-0 shrink">
+                <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0"></span>
+                <span id="npub-display" class="text-[10px] sm:text-xs font-mono text-gray-700 dark:text-gray-300 truncate max-w-[80px] sm:max-w-[120px]">جاري...</span>
+                <span id="nip07-badge" class="hidden text-[8px] sm:text-[10px] font-bold bg-green-500/20 text-green-600 dark:text-green-400 px-1 py-0.5 rounded flex-shrink-0">NIP-07</span>
             </div>
+
+            <!-- Profile avatar -->
+            <button onclick="openProfileModal()"
+                    class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-accent to-accent2 flex items-center justify-center shrink-0 shadow-md hover:shadow-lg transition">
+                <img id="header-avatar-img" src="" alt="" class="hidden w-full h-full object-cover">
+                <span id="header-avatar-fallback" class="text-white text-sm font-black">P</span>
+            </button>
+
         </div>
     </header>
 
