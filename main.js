@@ -8,16 +8,21 @@
 // ============================
 
 function validateAdminPubkey() {
-    if (typeof ADMIN_PUBKEY_HEX !== 'undefined' && 
-        ADMIN_PUBKEY_HEX && 
-        ADMIN_PUBKEY_HEX.length === 64 &&
-        /^[0-9a-fA-F]{64}$/.test(ADMIN_PUBKEY_HEX)) {
-        const hex = ADMIN_PUBKEY_HEX.toLowerCase();
+    if (typeof ADMIN_NPUB === 'undefined' || !ADMIN_NPUB || !ADMIN_NPUB.startsWith('npub1')) {
+        console.error('[Admin] ❌ ADMIN_NPUB غير موجود أو غير صحيح في config.js.');
+        window.ADMIN_PUBKEY_HEX = null;
+        return false;
+    }
+
+    try {
+        const decoded = NostrTools.nip19.decode(ADMIN_NPUB);
+        if (decoded.type !== 'npub') throw new Error('ليس npub');
+        const hex = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
         window.ADMIN_PUBKEY_HEX = hex;
-        console.log('[Admin] ✅ تم تحميل ADMIN_PUBKEY_HEX:', hex);
+        console.log('[Admin] ✅ تم تحويل ADMIN_NPUB وتحميله:', hex);
         return true;
-    } else {
-        console.error('[Admin] ❌ ADMIN_PUBKEY_HEX غير صحيح في config.js.');
+    } catch (e) {
+        console.error('[Admin] ❌ فشل فك تشفير ADMIN_NPUB:', e);
         window.ADMIN_PUBKEY_HEX = null;
         return false;
     }
