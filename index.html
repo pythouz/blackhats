@@ -560,13 +560,6 @@
                     <span class="dark:text-white">تصدير المفتاح الخاص (nsec)</span>
                 </button>
 
-                <!-- Import key -->
-                <button onclick="importKey()"
-                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
-                    <i class="fas fa-file-import text-green-500 w-6"></i>
-                    <span class="dark:text-white">استيراد مفتاح</span>
-                </button>
-
                 <!-- Logout button -->
                 <button onclick="logout()"
                         class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition rounded-lg px-2">
@@ -580,23 +573,6 @@
                     <i class="fas fa-shield-alt text-red-500 w-6"></i>
                     <span class="dark:text-white">👮 لوحة الإدارة (حظر المستخدمين)</span>
                 </button>
-
-                <!-- رسالة تسجيل الدخول (تظهر تلقائياً) -->
-                <div id="settings-login-prompt" class="hidden p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 mt-4">
-                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2 font-bold">
-                        🔑 أنت لست مسجلاً كمدير
-                    </p>
-                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                        لتتمكن من حظر المستخدمين، سجل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
-                    </p>
-                    <button onclick="importKeyFromHeader()" 
-                            class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition">
-                        <i class="fas fa-key"></i> تسجيل الدخول كمستخدم
-                    </button>
-                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                        الصق المفتاح الخاص (nsec) الخاص بحساب المدير
-                    </p>
-                </div>
             </div>
         </div>
 
