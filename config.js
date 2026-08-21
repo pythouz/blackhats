@@ -28,21 +28,22 @@ const INITIAL_FEED_LIMIT = 300;
 // ============================
 
 /*
- * الطريقة المُوصى بها: استخدم المفتاح العام بصيغة hex (64 حرفاً).
- * يمكنك الحصول على hex من npub عبر وحدة التحكم (F12) باستخدام الأمر:
- *   NostrTools.nip19.decode('npub...').data
- * ثم تحويل Uint8Array إلى hex.
+ * 🔑 المفتاح العام للمدير (ADMIN_PUBKEY_HEX) يجب أن يكون بصيغة hex (64 حرفاً).
  * 
- * بدلاً من ذلك، يمكنك ترك ADMIN_PUBKEY_NPUB وسيحاول التطبيق تحويله تلقائياً.
- * لكن إذا واجهت مشكلة، استخدم ADMIN_PUBKEY_HEX_OVERRIDE.
+ * للحصول على hex من npub الخاص بك:
+ * 1. افتح الموقع، ثم وحدة تحكم المتصفح (F12).
+ * 2. الصق الأمر التالي:
+ *    const npub = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
+ *    const decoded = NostrTools.nip19.decode(npub);
+ *    const hex = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
+ *    console.log(hex);
+ * 3. انسخ الناتج (64 حرفاً) وضعه في ADMIN_PUBKEY_HEX أدناه.
+ * 
+ * مثال: eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9
  */
 
-// المفتاح العام بصيغة npub (للتحويل التلقائي)
-const ADMIN_PUBKEY_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
-
-// 💡 اترك هذا فارغاً للتحويل التلقائي، أو ضع hex مباشرة (64 حرفاً) لتجاوز التحويل.
-// مثال: 'eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9'
-const ADMIN_PUBKEY_HEX_OVERRIDE = ''; // ⚠️ ضع hex هنا إذا استمرت مشكلة التحويل
+// ⚠️ IMPORTANT: استبدل القيمة التالية بـ hex الخاص بك
+const ADMIN_PUBKEY_HEX = 'eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9';
 
 // نوع الحدث المخصص للحظر
 const BAN_EVENT_KIND = 20001;
