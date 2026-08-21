@@ -1,70 +1,112 @@
 /* =========================================================
    Pulse — utils.js
-   دوال مساعدة عامة + نظام الـ Toast للإشعارات
+   دوال مساعدة عامة
    ========================================================= */
 
 // ============================
-// 3. أدوات مساعدة
+// 3. دوال مساعدة
 // ============================
 
-const $ = id => document.getElementById(id);
+function $(id) {
+    return document.getElementById(id);
+}
 
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
-    div.textContent = text ?? '';
+    div.textContent = text;
     return div.innerHTML;
 }
 
 function safeRoomName(name) {
-    return String(name || '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 80);
+    if (!name) return 'غرفة';
+    return name.replace(/[^a-zA-Z0-9\u0600-\u06FF\-_ ]/g, '').trim().slice(0, 30) || 'غرفة';
 }
 
 function getErrorMessage(error) {
-    if (!error) return 'خطأ غير معروف';
     if (typeof error === 'string') return error;
-    return error.message || error.type || 'خطأ غير معروف';
+    if (error?.message) return error.message;
+    return 'حدث خطأ غير معروف';
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function limitSet(set, max) {
-    if (set.size <= max) return;
-    const arr = Array.from(set);
-    for (let i = 0; i < set.size - max; i++) set.delete(arr[i]);
+    if (set.size > max) {
+        const iter = set.values();
+        while (set.size > max) {
+            iter.next();
+            set.delete(iter.next().value);
+        }
+    }
 }
 
 function limitMap(map, max) {
-    if (map.size <= max) return;
-    const keys = Array.from(map.keys());
-    for (let i = 0; i < map.size - max; i++) {
-        const el = map.get(keys[i]);
-        if (el?.remove) el.remove();
-        map.delete(keys[i]);
+    if (map.size > max) {
+        const iter = map.keys();
+        while (map.size > max) {
+            const key = iter.next().value;
+            if (key !== undefined) map.delete(key);
+        }
     }
 }
 
 function getDisplayName(pubkey) {
-    const cached = profileCache.get(pubkey);
-    if (cached?.name) return cached.name.slice(0, 24);
-    return pubkey.slice(0, 8) + '...';
+    const profile = profileCache.get(pubkey);
+    if (profile?.name) return profile.name;
+    if (pubkey) return pubkey.slice(0, 8) + '...';
+    return 'مجهول';
+}
+
+function getTagValue(tags, key) {
+    if (!tags) return null;
+    for (const tag of tags) {
+        if (tag[0] === key) return tag[1];
+    }
+    return null;
 }
 
 // ============================
-// 4. Toast
+// 4. نظام التنبيهات (Toast)
 // ============================
 
-function showToast(message, type = 'success') {
-    const toast = $('toast');
-    const icon = $('toast-icon');
-    const msg = $('toast-msg');
-    if (!toast || !icon || !msg) { console.log('[Toast]', message); return; }
+let toastTimeout = null;
 
-    msg.textContent = message;
-    icon.className = type === 'error' ? 'fas fa-exclamation-circle text-red-400' :
-                     type === 'info'  ? 'fas fa-info-circle text-blue-400' :
-                                        'fas fa-check-circle text-green-400';
+function showToast(message, type = 'info') {
+    const toast = $('toast');
+    const msgEl = $('toast-msg');
+    const iconEl = $('toast-icon');
+    if (!toast || !msgEl || !iconEl) return;
+
+    if (toastTimeout) {
+        clearTimeout(toastTimeout);
+        toastTimeout = null;
+    }
+
+    msgEl.textContent = message;
+
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        info: 'fa-info-circle',
+        warning: 'fa-exclamation-triangle'
+    };
+    const colors = {
+        success: 'text-green-400 dark:text-green-600',
+        error: 'text-red-400 dark:text-red-600',
+        info: 'text-blue-400 dark:text-blue-600',
+        warning: 'text-yellow-400 dark:text-yellow-600'
+    };
+    iconEl.className = `fas ${icons[type] || icons.info} ${colors[type] || colors.info}`;
 
     toast.classList.remove('hidden');
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => toast.classList.add('hidden'), 3500);
+    toast.classList.add('flex');
+
+    toastTimeout = setTimeout(() => {
+        toast.classList.add('hidden');
+        toast.classList.remove('flex');
+        toastTimeout = null;
+    }, 3000);
 }
