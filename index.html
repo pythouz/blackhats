@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#FF6B00">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="mobile-web-app-capable" content="yes">
 
     <title>Pulse — منصة المجتمع الحي</title>
 
@@ -262,7 +262,7 @@
                 </button>
             </div>
 
-            <!-- Right side: Login (key) + Profile avatar -->
+            <!-- Right side: Login key + Profile avatar -->
             <div class="flex items-center gap-1.5 flex-shrink-0">
 
                 <!-- Login button (استيراد المفتاح الخاص) -->
@@ -283,7 +283,7 @@
         </div>
     </header>
 
-    <!-- ========== SETTINGS PANEL (اللوحة المنبثقة القديمة - نُبقيها للتوافق) ========== -->
+    <!-- ========== SETTINGS PANEL (اللوحة المنبثقة القديمة - للتوافق) ========== -->
     <div id="settings-panel"
          class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-[60] w-[min(92vw,28rem)] bg-white/95 dark:bg-surface/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6 fade-in">
         <div class="flex items-center justify-between mb-5">
@@ -521,7 +521,7 @@
 
         </div>
 
-        <!-- ===== SETTINGS VIEW (جديد) ===== -->
+        <!-- ===== SETTINGS VIEW ===== -->
         <div id="view-settings" class="view-section hidden fade-in">
             <div class="bg-white dark:bg-cardDark rounded-3xl p-6 shadow-soft border border-gray-100 dark:border-gray-800">
                 <h2 class="text-2xl font-bold mb-6 dark:text-white">⚙️ الإعدادات</h2>
@@ -567,12 +567,36 @@
                     <span class="dark:text-white">استيراد مفتاح</span>
                 </button>
 
+                <!-- Logout button -->
+                <button onclick="logout()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition rounded-lg px-2">
+                    <i class="fas fa-sign-out-alt text-red-500 w-6"></i>
+                    <span class="dark:text-white text-red-500">تسجيل الخروج</span>
+                </button>
+
                 <!-- Admin panel (يظهر فقط للمدير) -->
                 <button id="settings-admin-btn" onclick="openAdminPanel()"
                         class="hidden w-full flex items-center gap-3 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2 mt-2 border-t border-gray-100 dark:border-gray-700 pt-4">
                     <i class="fas fa-shield-alt text-red-500 w-6"></i>
                     <span class="dark:text-white">👮 لوحة الإدارة (حظر المستخدمين)</span>
                 </button>
+
+                <!-- رسالة تسجيل الدخول (تظهر تلقائياً) -->
+                <div id="settings-login-prompt" class="hidden p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 mt-4">
+                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2 font-bold">
+                        🔑 أنت لست مسجلاً كمدير
+                    </p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                        لتتمكن من حظر المستخدمين، سجل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
+                    </p>
+                    <button onclick="importKeyFromHeader()" 
+                            class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition">
+                        <i class="fas fa-key"></i> تسجيل الدخول كمستخدم
+                    </button>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        الصق المفتاح الخاص (nsec) الخاص بحساب المدير
+                    </p>
+                </div>
             </div>
         </div>
 
