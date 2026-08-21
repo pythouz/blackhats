@@ -8,24 +8,27 @@
 // ============================
 
 function validateAdminPubkey() {
-    // التحقق من أن ADMIN_PUBKEY_HEX معرف وصحيح (64 حرفاً، أحرف hex فقط)
     if (typeof ADMIN_PUBKEY_HEX !== 'undefined' && 
         ADMIN_PUBKEY_HEX && 
         ADMIN_PUBKEY_HEX.length === 64 &&
         /^[0-9a-fA-F]{64}$/.test(ADMIN_PUBKEY_HEX)) {
-        // تحويل إلى أحرف صغيرة للتوحيد
         const hex = ADMIN_PUBKEY_HEX.toLowerCase();
-        // إعادة تعيين القيمة الموحدة
         window.ADMIN_PUBKEY_HEX = hex;
         console.log('[Admin] ✅ تم تحميل ADMIN_PUBKEY_HEX:', hex);
         return true;
     } else {
         console.error('[Admin] ❌ ADMIN_PUBKEY_HEX غير صحيح في config.js.');
-        console.error('[Admin] 🔧 تأكد من أنه 64 حرفاً هكساديسيمال (0-9, a-f).');
-        console.error('[Admin] 💡 مثال: eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9');
         window.ADMIN_PUBKEY_HEX = null;
         return false;
     }
+}
+
+// ============================
+// التحقق مما إذا كان المستخدم الحالي هو المدير
+// ============================
+
+function isCurrentUserAdmin() {
+    return pk && window.ADMIN_PUBKEY_HEX && pk === window.ADMIN_PUBKEY_HEX;
 }
 
 // ============================
@@ -35,13 +38,10 @@ function validateAdminPubkey() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Pulse] بدء التشغيل');
 
-    // التحقق من صحة مفتاح المدير
     const isValid = validateAdminPubkey();
 
     if (!isValid) {
         showToast('⚠️ خطأ في إعدادات المدير: تأكد من ADMIN_PUBKEY_HEX في config.js', 'error');
-    } else {
-        console.log('[Admin] ✅ تم تعيين ADMIN_PUBKEY_HEX بنجاح');
     }
 
     // إعداد الثيم
@@ -50,6 +50,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await initIdentity();
+
+    // التحقق من هوية المدير بعد تحميل الهوية
+    if (isValid) {
+        if (isCurrentUserAdmin()) {
+            console.log('[Admin] ✅ المستخدم الحالي هو المدير');
+        } else {
+            console.log('[Admin] ⚠️ المستخدم الحالي ليس المدير. لتتمكن من الحظر، سجل الدخول بمفتاح المدير الخاص.');
+            console.log('[Admin] 💡 اضغط على زر المفتاح 🔑 في الهيدر أو استخدم "استيراد مفتاح" في الإعدادات.');
+        }
+    }
+
     await loadBanList();
     subscribeToBanEvents();
 
@@ -228,3 +239,4 @@ window.renderBannedList = renderBannedList;
 window.addBanButtonToPost = addBanButtonToPost;
 window.processBanEvent = processBanEvent;
 window.applyBanFilter = applyBanFilter;
+window.isCurrentUserAdmin = isCurrentUserAdmin;
