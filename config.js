@@ -28,7 +28,7 @@ const INITIAL_FEED_LIMIT = 300;
 // ============================
 
 // 🔑 المفتاح العام للمدير بصيغة hex (64 حرفاً) - تم تحويله من npub الخاص بك
-const ADMIN_PUBKEY_HEX = 'eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9';
+const ADMIN_PUBKEY_HEX = '7d36357917c763d308061d4b1a45747688004f84c8c7f9983946227653554583';
 
 // نوع الحدث المخصص للحظر
 const BAN_EVENT_KIND = 20001;
