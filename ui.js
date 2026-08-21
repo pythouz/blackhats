@@ -26,7 +26,8 @@ function switchView(viewName) {
     if (viewName === 'settings') {
         const adminBtn = document.getElementById('settings-admin-btn');
         if (adminBtn) {
-            if (pk === ADMIN_PUBKEY) {
+            // استخدام ADMIN_PUBKEY_HEX بدلاً من ADMIN_PUBKEY
+            if (pk === window.ADMIN_PUBKEY_HEX) {
                 adminBtn.classList.remove('hidden');
             } else {
                 adminBtn.classList.add('hidden');
@@ -86,8 +87,9 @@ function removeBanner() {
  * تُضاف زر الحظر/إلغاء الحظر إلى منطقة الأزرار (بجانب الإعجاب والتعليق)
  */
 function addBanButtonToPost(postElement, postPubkey) {
-    if (typeof ADMIN_PUBKEY === 'undefined' || !pk) return;
-    if (pk !== ADMIN_PUBKEY || pk === postPubkey) return;
+    // استخدام ADMIN_PUBKEY_HEX بدلاً من ADMIN_PUBKEY
+    if (typeof window.ADMIN_PUBKEY_HEX === 'undefined' || !pk) return;
+    if (pk !== window.ADMIN_PUBKEY_HEX || pk === postPubkey) return;
 
     const actionsContainer = postElement.querySelector('.post-actions');
     if (!actionsContainer) return;
@@ -110,7 +112,7 @@ function addBanButtonToPost(postElement, postPubkey) {
  * تبديل حالة الحظر - بدون إشعارات نجاح
  */
 async function toggleBanUser(targetPubkey) {
-    if (pk !== ADMIN_PUBKEY) {
+    if (pk !== window.ADMIN_PUBKEY_HEX) {
         showToast('أنت لست مديراً', 'error');
         return;
     }
@@ -155,7 +157,7 @@ async function toggleBanUser(targetPubkey) {
 let adminPanelOpen = false;
 
 function openAdminPanel() {
-    if (pk !== ADMIN_PUBKEY) {
+    if (pk !== window.ADMIN_PUBKEY_HEX) {
         showToast('أنت لست مديراً', 'error');
         return;
     }
@@ -230,7 +232,6 @@ function searchUser() {
     }
 
     let pubkey = query;
-    // إذا كان npub، نحوله إلى hex
     if (query.startsWith('npub1')) {
         try {
             const decoded = NostrTools.nip19.decode(query);
@@ -246,12 +247,10 @@ function searchUser() {
         return;
     }
 
-    // جلب البروفايل وعرضه في نافذة منبثقة
     fetchProfiles([pubkey]);
     const name = getDisplayName(pubkey);
     const npubFormatted = NostrTools.nip19.npubEncode(pubkey);
 
-    // إنشاء نافذة منبثقة (popup) لعرض النتيجة
     const existing = document.getElementById('search-result-popup');
     if (existing) existing.remove();
 
@@ -296,5 +295,5 @@ function searchUser() {
 // ============================
 
 function importKeyFromHeader() {
-    importKey(); // نفس دالة الاستيراد الموجودة في auth.js
+    importKey();
 }
