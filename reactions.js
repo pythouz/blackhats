@@ -1,370 +1,383 @@
 /* =========================================================
-   Pulse — reactions.js
-   الإعجابات والردود (بما فيها الردود المتداخلة)
+   Pulse — registration.js
+   نظام التسجيل بموافقة الإدارة (Approval-based registration)
+   كل البيانات متخزنة على Nostr relays فقط — مفيش سيرفر خارجي
    ========================================================= */
 
 // ============================
-// 13. الإعجابات والردود
+// كاش محلي لقائمة الأعضاء الموافق عليهم
 // ============================
 
-function getReactionStats(postId) {
-    const card = getPostCard(postId);
-    if (!card) return null;
-    return {
-        card,
-        likeButton: card.querySelector('.like-button'),
-        likeCount: card.querySelector('.like-count'),
-        replyCount: card.querySelector('.reply-count')
-    };
-}
+const APPROVED_CACHE_KEY = 'pulse_approved_cache';
 
-function toggleReplies(postId) {
-    const card = getPostCard(postId);
-    if (!card) return;
-    const container = card.querySelector(`[data-replies="${CSS.escape(postId)}"]`);
-    const toggleBtn = card.querySelector('.reply-toggle-button');
-    const icon = toggleBtn?.querySelector('.reply-toggle-icon');
-    if (!container) return;
-    const willShow = container.classList.contains('hidden');
-    container.classList.toggle('hidden');
-    if (icon) icon.classList.toggle('rotate-180', willShow);
-}
-
-function updateLikeUI(postId, liked) {
-    const stats = getReactionStats(postId);
-    if (!stats) return;
-    stats.likeButton.dataset.liked = liked ? 'true' : 'false';
-    const icon = stats.likeButton.querySelector('i');
-    if (liked) {
-        stats.likeButton.classList.add('text-red-500', 'font-bold');
-        if (icon) icon.className = 'fas fa-heart text-red-500';
-    } else {
-        stats.likeButton.classList.remove('text-red-500', 'font-bold');
-        if (icon) icon.className = 'far fa-heart';
-    }
-}
-
-function syncLikeCountUI(postId) {
-    const stats = getReactionStats(postId);
-    const likers = postLikers.get(postId);
-    const postStat = postStats.get(postId);
-    if (!likers || !postStat) return;
-    postStat.likes = likers.size;
-    if (stats?.likeCount) {
-        stats.likeCount.dataset.count = String(postStat.likes);
-        stats.likeCount.textContent = String(postStat.likes);
-    }
-}
-
-async function likePost(targetId, targetPubkey) {
-    const stats = getReactionStats(targetId);
-    if (!stats) { showToast('تعذر العثور على المنشور', 'error'); return; }
-    const postStat = postStats.get(targetId);
-    if (!postStat) return;
-    let likers = postLikers.get(targetId);
-    if (!likers) { likers = new Map(); postLikers.set(targetId, likers); }
-
-    if (stats.likeButton.dataset.liked === 'true') {
-        if (postStat.myLikeEventId) {
-            try {
-                const deleteEvent = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', postStat.myLikeEventId]], content: '' });
-                await pool.publish(RELAYS, deleteEvent);
-                likeEventIndex.delete(postStat.myLikeEventId);
-                likers.delete(pk);
-                postStat.myLikeEventId = null;
-                updatePostScore(targetId);
-                updateLikeUI(targetId, false);
-                syncLikeCountUI(targetId);
-                showToast('تم إلغاء الإعجاب', 'info');
-            } catch (error) {
-                showToast('فشل إلغاء الإعجاب: ' + getErrorMessage(error), 'error');
-            }
+function loadApprovedCache() {
+    try {
+        const raw = localStorage.getItem(APPROVED_CACHE_KEY);
+        if (!raw) return;
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+            arr.forEach(pubkey => approvedPubkeys.add(pubkey));
+            console.log('[Registration] تم تحميل قائمة الأعضاء من الذاكرة المحلية:', approvedPubkeys.size);
         }
-        return;
-    }
-
-    if (likers.has(pk)) { updateLikeUI(targetId, true); syncLikeCountUI(targetId); return; }
-
-    try {
-        const likeEvent = await signEvent({ kind: 7, created_at: Math.floor(Date.now() / 1000), tags: [['e', targetId], ['p', targetPubkey]], content: '+' });
-        await pool.publish(RELAYS, likeEvent);
-        likers.set(pk, likeEvent.id);
-        likeEventIndex.set(likeEvent.id, { postId: targetId, pubkey: pk });
-        postStat.myLikeEventId = likeEvent.id;
-        updatePostScore(targetId);
-        updateLikeUI(targetId, true);
-        syncLikeCountUI(targetId);
-        stats.likeButton.classList.add('scale-110');
-        setTimeout(() => stats.likeButton.classList.remove('scale-110'), 180);
-        showToast('تم الإعجاب ❤️', 'success');
-    } catch (error) {
-        showToast('فشل الإعجاب: ' + getErrorMessage(error), 'error');
+    } catch (e) {
+        console.warn('[Registration] فشل تحميل كاش الموافقات:', e);
     }
 }
 
-function startReactionSubscription() {
-    const postIds = Array.from(renderedPosts.keys());
-    if (!postIds.length) return;
-    if (reactionsSubscription) try { reactionsSubscription.close(); } catch(e) {}
+function saveApprovedCache() {
     try {
-        reactionsSubscription = pool.subscribeMany(RELAYS, [{ kinds: [7, 1, 5], '#e': postIds, limit: 500 }], {
-            onevent: event => {
-                if (!event?.id) return;
-                // فلتر الحظر للتفاعلات
-                if (bannedPubkeys.has(event.pubkey)) return;
-                if (event.kind === 7) handleIncomingLike(event);
-                if (event.kind === 1) handleIncomingReply(event);
-                if (event.kind === 5) handleDeleteEvent(event);
+        localStorage.setItem(APPROVED_CACHE_KEY, JSON.stringify(Array.from(approvedPubkeys)));
+    } catch (e) {
+        console.warn('[Registration] فشل حفظ كاش الموافقات:', e);
+    }
+}
+
+// ============================
+// تحميل قائمة الموافقات من الريلايز
+// ============================
+
+let approvalSubscription = null;
+
+async function loadApprovalList() {
+    return new Promise((resolve) => {
+        const adminHex = window.ADMIN_PUBKEY_HEX;
+        if (!adminHex) { resolve(); return; }
+
+        const events = [];
+        const sub = pool.subscribeMany(RELAYS, [{ kinds: [APPROVE_EVENT_KIND], authors: [adminHex] }], {
+            onevent: (event) => events.push(event),
+            oneose: () => {
+                applyApprovalEvents(events);
+                resolve();
             },
-            oneose: () => console.log('[Reactions] تم التحميل')
-        });
-    } catch(e) { console.error('[Reactions] خطأ:', e); }
-}
-
-function handleIncomingLike(event) {
-    if (seenEvents.has(event.id)) return;
-    seenEvents.add(event.id);
-    limitSet(seenEvents, MAX_SEEN_EVENTS);
-    if (tombstonedEvents.has(event.id)) return;
-
-    const targetId = getTagValue(event.tags, 'e');
-    if (!targetId) return;
-    const postStat = postStats.get(targetId);
-    if (!postStat) return;
-
-    let likers = postLikers.get(targetId);
-    if (!likers) { likers = new Map(); postLikers.set(targetId, likers); }
-    if (likers.has(event.pubkey)) return;
-
-    likers.set(event.pubkey, event.id);
-    likeEventIndex.set(event.id, { postId: targetId, pubkey: event.pubkey });
-    if (event.pubkey === pk) postStat.myLikeEventId = event.id;
-
-    updatePostScore(targetId);
-    syncLikeCountUI(targetId);
-    if (event.pubkey === pk) updateLikeUI(targetId, true);
-}
-
-function getTagValue(tags, name) {
-    if (!Array.isArray(tags)) return null;
-    const tag = tags.find(t => t[0] === name);
-    return tag ? tag[1] : null;
-}
-
-function getReplyTargets(tags) {
-    if (!Array.isArray(tags)) return { rootId: null, parentId: null };
-    const eTags = tags.filter(t => t[0] === 'e' && t[1]);
-    if (!eTags.length) return { rootId: null, parentId: null };
-    const rootTag = eTags.find(t => t[3] === 'root');
-    const replyTag = eTags.find(t => t[3] === 'reply');
-    if (rootTag) {
-        return { rootId: rootTag[1], parentId: replyTag ? replyTag[1] : rootTag[1] };
-    }
-    return { rootId: eTags[0][1], parentId: eTags[0][1] };
-}
-
-// ===== معالجة الردود المعلقة =====
-
-function processAllPendingReplies() {
-    const keys = Array.from(pendingRepliesMap.keys());
-    for (const rootId of keys) {
-        processPendingReplies(rootId);
-    }
-}
-
-function processPendingReplies(postId) {
-    if (!pendingRepliesMap.has(postId)) return;
-    // بنعمل تمرير متكرر (fixed-point loop) لحد ما تفضل مفيش أي تقدّم.
-    // ده مهم لأن ترتيب وصول الأحداث بعد الريفرش مش مضمون يبقى ترتيب زمني
-    // (الردود الأحدث ممكن توصل قبل الرد الأب بتاعها)، فالتمرير الواحد
-    // القديم كان بيسيب ردود متداخلة عالقة، وبالتالي بتقع على الروت (attemptRenderReply
-    // كانت بتعمل fallback غلط). دلوقتي بنكرر لحد ما كل حاجة ممكنة تتحل.
-    let progress = true;
-    while (progress) {
-        progress = false;
-        const replies = pendingRepliesMap.get(postId);
-        if (!replies || !replies.length) break;
-        for (let i = replies.length - 1; i >= 0; i--) {
-            const event = replies[i];
-            const { rootId, parentId } = getReplyTargets(event.tags);
-            if (attemptRenderReply(event, rootId, parentId)) {
-                replies.splice(i, 1);
-                progress = true;
+            onclose: () => {
+                if (events.length > 0) applyApprovalEvents(events);
+                resolve();
             }
-        }
-    }
-    if (pendingRepliesMap.get(postId)?.length === 0) pendingRepliesMap.delete(postId);
+        });
+        setTimeout(() => {
+            try { sub.close(); } catch (e) {}
+            resolve();
+        }, 10000);
+    });
 }
 
-function attemptRenderReply(event, rootId, parentId) {
-    const rootCard = getPostCard(rootId);
-    if (!rootCard) return false;
-
-    let container = null;
-    if (parentId && parentId !== rootId) {
-        // ده رد على تعليق (نستد) — لازم نلاقي التعليق الأب في الـ DOM فعلاً.
-        // قبل كده لو الأب لسه معملوش render (شائع بعد الريفرش لأن الردود
-        // الأحدث بتوصل الأول)، كان الكود بيعمل fallback ويحط الرد كتعليق
-        // منفصل تحت البوست مباشرة — وده سبب المشكلة اللي بتحصل بعد الريفرش.
-        // دلوقتي: لو الأب مش موجود لسه، منرجعش container فاضي، نستنى ونحاول
-        // تاني (الرد بيفضل pending لحد ما الأب يتعمله render).
-        const parentElement = document.querySelector(`[data-reply-id="${CSS.escape(parentId)}"]`);
-        if (!parentElement) return false;
-        container = parentElement.querySelector('.nested-replies');
-        if (!container) {
-            container = document.createElement('div');
-            container.className = 'nested-replies mt-2 space-y-2 mr-4 border-r-2 border-accent/20 pr-3';
-            parentElement.appendChild(container);
-        }
-    } else {
-        container = rootCard.querySelector(`[data-replies="${CSS.escape(rootId)}"]`);
+function applyApprovalEvents(events) {
+    if (events.length === 0) {
+        console.log('[Registration] لا يوجد رد من السيرفرات، الإبقاء على القائمة المحلية:', approvedPubkeys.size);
+        return;
     }
-    if (!container) return false;
+    events.sort((a, b) => a.created_at - b.created_at);
+    for (const ev of events) {
+        const target = ev.tags.find(t => t[0] === 'p')?.[1];
+        if (!target) continue;
+        if (ev.content === 'approve') {
+            approvedPubkeys.add(target);
+        } else if (ev.content === 'revoke') {
+            approvedPubkeys.delete(target);
+        }
+    }
+    console.log('[Registration] تحميل قائمة الأعضاء من السيرفرات:', approvedPubkeys.size, 'عضو موافق عليه');
+    saveApprovedCache();
+}
 
-    if (document.querySelector(`[data-reply-id="${CSS.escape(event.id)}"]`)) return true;
+function subscribeToApprovalEvents() {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex) return;
+    if (approvalSubscription) { try { approvalSubscription.close(); } catch (e) {} }
+    approvalSubscription = pool.subscribeMany(RELAYS, [{ kinds: [APPROVE_EVENT_KIND], authors: [adminHex] }], {
+        onevent: (event) => processApprovalEvent(event),
+        oneose: () => {
+            setTimeout(subscribeToApprovalEvents, 5000);
+        }
+    });
+}
 
-    const reply = document.createElement('div');
-    reply.dataset.replyId = event.id;
-    reply.className = 'bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-sm border-r-2 border-accent/30 mr-2';
-    reply.innerHTML = `
-        <div class="flex items-center gap-2 mb-1">
-            <div class="avatar-slot">${avatarHtml(event.pubkey, 'w-6 h-6 text-xs')}</div>
-            <span class="text-xs font-bold text-gray-700 dark:text-gray-300">${escapeHtml(getDisplayName(event.pubkey))}</span>
+function processApprovalEvent(event) {
+    const target = event.tags.find(t => t[0] === 'p')?.[1];
+    if (!target) return;
+    if (event.content === 'approve') {
+        approvedPubkeys.add(target);
+    } else if (event.content === 'revoke') {
+        approvedPubkeys.delete(target);
+    } else {
+        return;
+    }
+    saveApprovedCache();
+
+    // لو أنا اللي اتوافق عليّ دلوقتي وأنا مستني، افتحلي المنصة فوراً من غير ما أعمل رفرش
+    if (target === pk) {
+        if (event.content === 'approve' && myAccessStatus !== 'approved') {
+            myAccessStatus = 'approved';
+            showToast('✅ تم قبول طلبك! أهلاً بيك في المنصة', 'success');
+            if (typeof unlockApp === 'function') unlockApp();
+        } else if (event.content === 'revoke' && myAccessStatus === 'approved') {
+            myAccessStatus = 'pending';
+            window.appUnlocked = false;
+            showToast('تم إلغاء عضويتك من قبل الإدارة', 'error');
+            renderAccessGate('pending');
+        }
+    }
+
+    if (adminPanelOpen) renderPendingRegistrationsPanel();
+}
+
+// ============================
+// طلبات التسجيل (يقدر يفك تشفيرها المدير بس)
+// ============================
+
+let registrationSubscription = null;
+
+function loadPendingRegistrationsForAdmin() {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex) return;
+    pool.subscribeMany(RELAYS, [{ kinds: [REGISTER_EVENT_KIND], '#p': [adminHex] }], {
+        onevent: (event) => {
+            processRegistrationEvent(event).then(() => {
+                if (adminPanelOpen) renderPendingRegistrationsPanel();
+            });
+        },
+        oneose: () => {
+            if (adminPanelOpen) renderPendingRegistrationsPanel();
+        }
+    });
+}
+
+function subscribeToRegistrationEvents() {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex) return;
+    if (registrationSubscription) { try { registrationSubscription.close(); } catch (e) {} }
+    registrationSubscription = pool.subscribeMany(RELAYS, [{ kinds: [REGISTER_EVENT_KIND], '#p': [adminHex] }], {
+        onevent: (event) => {
+            processRegistrationEvent(event).then(() => {
+                if (adminPanelOpen) renderPendingRegistrationsPanel();
+                else showToast('📥 وصل طلب تسجيل جديد', 'info');
+            });
+        },
+        oneose: () => {
+            setTimeout(subscribeToRegistrationEvents, 5000);
+        }
+    });
+}
+
+async function processRegistrationEvent(event) {
+    if (approvedPubkeys.has(event.pubkey)) return; // موافق عليه بالفعل، مفيش داعي نعرضه تاني
+    const existing = pendingRegistrations.get(event.pubkey);
+    if (existing && existing.created_at >= event.created_at) return; // نسخة أقدم من طلب موجود
+
+    try {
+        const decrypted = await decryptFromUser(event.content, event.pubkey);
+        const data = JSON.parse(decrypted);
+        pendingRegistrations.set(event.pubkey, {
+            email: data.email || '',
+            phone: data.phone || '',
+            created_at: event.created_at,
+            eventId: event.id
+        });
+    } catch (e) {
+        console.warn('[Registration] فشل فك تشفير طلب من', event.pubkey.slice(0, 8), e);
+        pendingRegistrations.set(event.pubkey, {
+            email: '(تعذّر فك التشفير)',
+            phone: '',
+            created_at: event.created_at,
+            eventId: event.id
+        });
+    }
+}
+
+async function approveUser(targetPubkey) {
+    if (!isCurrentUserAdmin()) { showToast('أنت لست مديراً', 'error'); return; }
+    try {
+        const eventTemplate = {
+            kind: APPROVE_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', targetPubkey]],
+            content: 'approve',
+        };
+        const signed = await signEvent(eventTemplate);
+        await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
+        approvedPubkeys.add(targetPubkey);
+        saveApprovedCache();
+        pendingRegistrations.delete(targetPubkey);
+        showToast('تمت الموافقة على العضو ✅', 'success');
+        renderPendingRegistrationsPanel();
+    } catch (e) {
+        showToast('فشلت الموافقة: ' + getErrorMessage(e), 'error');
+    }
+}
+
+async function revokeUser(targetPubkey) {
+    if (!isCurrentUserAdmin()) { showToast('أنت لست مديراً', 'error'); return; }
+    if (!confirm('هل تريد إلغاء عضوية هذا المستخدم؟ لن يقدر يشوف المنصة تاني.')) return;
+    try {
+        const eventTemplate = {
+            kind: APPROVE_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', targetPubkey]],
+            content: 'revoke',
+        };
+        const signed = await signEvent(eventTemplate);
+        await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
+        approvedPubkeys.delete(targetPubkey);
+        saveApprovedCache();
+        showToast('تم إلغاء عضوية المستخدم', 'success');
+        renderPendingRegistrationsPanel();
+    } catch (e) {
+        showToast('فشل الإلغاء: ' + getErrorMessage(e), 'error');
+    }
+}
+
+function dismissRegistration(pubkey) {
+    pendingRegistrations.delete(pubkey);
+    renderPendingRegistrationsPanel();
+}
+
+function renderPendingRegistrationsPanel() {
+    const list = document.getElementById('registrations-list');
+    const countBadge = document.getElementById('registrations-count-badge');
+    if (!list) return;
+
+    const entries = Array.from(pendingRegistrations.entries())
+        .filter(([pubkey]) => !approvedPubkeys.has(pubkey))
+        .sort((a, b) => b[1].created_at - a[1].created_at);
+
+    if (countBadge) countBadge.textContent = entries.length;
+
+    if (entries.length === 0) {
+        list.innerHTML = '<p class="text-gray-500 dark:text-gray-400">لا يوجد طلبات تسجيل قيد المراجعة</p>';
+        return;
+    }
+
+    list.innerHTML = entries.map(([pubkey, data]) => `
+        <div class="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg space-y-1">
+            <p class="text-sm"><span class="font-bold">📧 الإيميل:</span> ${escapeHtml(data.email)}</p>
+            <p class="text-sm"><span class="font-bold">📱 الرقم:</span> ${escapeHtml(data.phone)}</p>
+            <p class="text-xs text-gray-500 font-mono break-all">${pubkey}</p>
+            <div class="flex gap-2 pt-1">
+                <button onclick="approveUser('${pubkey}')" class="flex-1 bg-green-500 text-white py-1.5 rounded-lg text-sm hover:opacity-90 transition">
+                    <i class="fas fa-check"></i> موافقة
+                </button>
+                <button onclick="dismissRegistration('${pubkey}')" class="flex-1 bg-gray-300 dark:bg-gray-600 py-1.5 rounded-lg text-sm hover:opacity-90 transition">
+                    <i class="fas fa-times"></i> تجاهل
+                </button>
+            </div>
         </div>
-        <div class="text-gray-700 dark:text-gray-200 mr-2">${escapeHtml(event.content)}</div>
-        <button onclick="replyToComment('${event.id}', '${rootId}', '${event.pubkey}')" class="text-xs text-accent hover:underline mt-1 mr-2"><i class="fas fa-reply"></i> رد</button>
-    `;
-    container.appendChild(reply);
-    fetchProfiles([event.pubkey]);
-
-    const stats = getReactionStats(rootId);
-    if (stats) {
-        const current = Number(stats.replyCount.dataset.count || 0);
-        stats.replyCount.dataset.count = String(current + 1);
-        stats.replyCount.textContent = String(current + 1);
-        const postStat = postStats.get(rootId);
-        if (postStat) postStat.replies += 1;
-        updatePostScore(rootId);
-    }
-
-    if (event.pubkey === pk) {
-        const topContainer = rootCard.querySelector(`[data-replies="${CSS.escape(rootId)}"]`);
-        const toggleIcon = rootCard.querySelector('.reply-toggle-button .reply-toggle-icon');
-        if (topContainer?.classList.contains('hidden')) {
-            topContainer.classList.remove('hidden');
-            toggleIcon?.classList.add('rotate-180');
-        }
-    }
-
-    reorderFeed();
-    return true;
-}
-
-function handleIncomingReply(event) {
-    const { rootId, parentId } = getReplyTargets(event.tags);
-    if (!rootId) return;
-
-    if (!pendingRepliesMap.has(rootId)) pendingRepliesMap.set(rootId, []);
-    const existing = pendingRepliesMap.get(rootId).some(e => e.id === event.id);
-    if (!existing) {
-        pendingRepliesMap.get(rootId).push(event);
-    }
-
-    // نجرب نعالج كل الـ queue بتاع نفس الروت (مش بس الحدث ده لوحده) —
-    // كده لو الرد ده كان هو الحلقة الناقصة (parent) لردود تانية كانت
-    // عالقة قبل كده، هيتحلوا كلهم في نفس اللحظة بدل ما يفضلوا معلقين
-    // لحد أول عملية refresh/processAllPendingReplies تانية.
-    processPendingReplies(rootId);
+    `).join('');
 }
 
 // ============================
-// 14. الردود المتداخلة (Reply to Comment)
+// التحقق من حالة الوصول عند فتح التطبيق
 // ============================
 
-let pendingReply = null;
+async function initAccessControl() {
+    loadApprovedCache();
 
-async function replyToComment(replyToId, rootPostId, targetPubkey) {
-    const modal = $('reply-modal');
-    const textarea = $('reply-input');
-    if (modal && textarea) {
-        pendingReply = { targetId: replyToId, rootId: rootPostId, targetPubkey, isCommentReply: true };
-        textarea.value = '';
-        modal.classList.remove('hidden');
-        setTimeout(() => textarea.focus(), 50);
-        return;
+    if (isCurrentUserAdmin()) {
+        myAccessStatus = 'approved';
+        return true;
     }
-    const content = prompt('اكتب ردك على هذا التعليق:');
-    if (!content?.trim()) return;
-    await sendReplyWithRoot(replyToId, targetPubkey, content.trim(), rootPostId);
+
+    if (approvedPubkeys.has(pk)) {
+        myAccessStatus = 'approved';
+        return true;
+    }
+
+    const submitted = localStorage.getItem('pulse_reg_submitted_' + pk);
+    myAccessStatus = submitted ? 'pending' : 'not_registered';
+    renderAccessGate(myAccessStatus);
+    return false;
 }
 
-async function confirmReply() {
-    if (!pendingReply) return;
-    const textarea = $('reply-input');
-    const content = (textarea?.value || '').trim();
-    if (!content) { showToast('اكتب ردًا', 'error'); return; }
-    const { targetId, targetPubkey, rootId, isCommentReply } = pendingReply;
-    closeReplyModal();
-    if (isCommentReply) {
-        await sendReplyWithRoot(targetId, targetPubkey, content, rootId);
+// ============================
+// واجهة بوابة الدخول (نموذج التسجيل / انتظار الموافقة)
+// ============================
+
+function renderAccessGate(mode) {
+    let gate = document.getElementById('access-gate');
+    if (!gate) {
+        gate = document.createElement('div');
+        gate.id = 'access-gate';
+        gate.className = 'fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-[100] p-4';
+        document.body.appendChild(gate);
+    }
+    gate.classList.remove('hidden');
+
+    if (mode === 'not_registered') {
+        gate.innerHTML = `
+            <div class="max-w-sm w-full bg-white dark:bg-surface rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700">
+                <h2 class="text-xl font-bold mb-2 dark:text-white text-center">🔒 التسجيل في المنصة</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-5 text-center">
+                    ادخل بياناتك، وهيتم مراجعة طلبك من الإدارة قبل ما تقدر تدخل المنصة
+                </p>
+                <div class="space-y-3">
+                    <input id="reg-email-input" type="email" placeholder="البريد الإلكتروني"
+                           class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white text-sm" />
+                    <input id="reg-phone-input" type="tel" placeholder="رقم الهاتف"
+                           class="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white text-sm" />
+                    <button onclick="submitRegistration()"
+                            class="w-full bg-accent text-white py-3 rounded-xl font-bold hover:opacity-90 transition">
+                        إرسال طلب التسجيل
+                    </button>
+                </div>
+                <p class="text-xs text-gray-400 mt-4 text-center">
+                    بياناتك بتتشفّر ومحدش يقدر يشوفها غير الإدارة
+                </p>
+            </div>
+        `;
+    } else if (mode === 'pending') {
+        gate.innerHTML = `
+            <div class="max-w-sm w-full bg-white dark:bg-surface rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 text-center">
+                <div class="text-5xl mb-3">⏳</div>
+                <h2 class="text-xl font-bold mb-2 dark:text-white">طلبك قيد المراجعة</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                    هيتم فتح المنصة تلقائياً هنا لما توافق الإدارة على طلبك. تقدر تسيب الصفحة مفتوحة أو ترجع تاني بعدين.
+                </p>
+            </div>
+        `;
     } else {
-        await sendReply(targetId, targetPubkey, content);
+        gate.innerHTML = `
+            <div class="text-center">
+                <div class="text-4xl mb-3 animate-pulse">⏳</div>
+                <p class="text-gray-500 dark:text-gray-400">جاري التحقق...</p>
+            </div>
+        `;
     }
 }
 
-async function sendReplyWithRoot(replyToId, targetPubkey, content, rootId) {
-    try {
-        const event = await signEvent({
-            kind: 1,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [
-                ['e', replyToId, '', 'reply'],
-                ['e', rootId, '', 'root'],
-                ['p', targetPubkey],
-                ['t', APP_TAG]
-            ],
-            content
-        });
-        handleIncomingReply(event);
-        await pool.publish(RELAYS, event);
-        showToast('تم إرسال الرد', 'success');
-    } catch (error) {
-        showToast('فشل إرسال الرد: ' + getErrorMessage(error), 'error');
-    }
+function hideAccessGate() {
+    const gate = document.getElementById('access-gate');
+    if (gate) gate.remove();
 }
 
-async function sendReply(targetId, targetPubkey, content) {
-    try {
-        const event = await signEvent({
-            kind: 1,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [['e', targetId, '', 'reply'], ['p', targetPubkey], ['t', APP_TAG]],
-            content
-        });
-        handleIncomingReply(event);
-        await pool.publish(RELAYS, event);
-        showToast('تم إرسال الرد', 'success');
-    } catch (error) {
-        showToast('فشل إرسال الرد: ' + getErrorMessage(error), 'error');
-    }
-}
+async function submitRegistration() {
+    const emailInput = document.getElementById('reg-email-input');
+    const phoneInput = document.getElementById('reg-phone-input');
+    const email = emailInput?.value.trim();
+    const phone = phoneInput?.value.trim();
 
-async function replyToPost(targetId, targetPubkey) {
-    const modal = $('reply-modal');
-    const textarea = $('reply-input');
-    if (modal && textarea) {
-        pendingReply = { targetId, targetPubkey, rootId: targetId, isCommentReply: false };
-        textarea.value = '';
-        modal.classList.remove('hidden');
-        setTimeout(() => textarea.focus(), 50);
+    if (!email || !phone) {
+        showToast('من فضلك اكتب الإيميل ورقم الهاتف', 'error');
         return;
     }
-    const content = prompt('اكتب ردك:');
-    if (!content?.trim()) return;
-    await sendReply(targetId, targetPubkey, content.trim());
-}
 
-function closeReplyModal() {
-    $('reply-modal')?.classList.add('hidden');
-    pendingReply = null;
+    try {
+        const payload = JSON.stringify({ email, phone, npub, ts: Date.now() });
+        const encrypted = await encryptToAdmin(payload);
+        const eventTemplate = {
+            kind: REGISTER_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', window.ADMIN_PUBKEY_HEX]],
+            content: encrypted,
+        };
+        const signed = await signEvent(eventTemplate);
+        await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
+
+        localStorage.setItem('pulse_reg_submitted_' + pk, String(Math.floor(Date.now() / 1000)));
+        myAccessStatus = 'pending';
+        renderAccessGate('pending');
+        showToast('تم إرسال طلبك بنجاح ✅', 'success');
+    } catch (e) {
+        console.error('[Registration] فشل إرسال الطلب:', e);
+        showToast('فشل إرسال الطلب: ' + getErrorMessage(e), 'error');
+    }
 }
