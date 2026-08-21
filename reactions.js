@@ -17,6 +17,7 @@ async function likePost(postId, postPubkey) {
 
     try {
         if (existingLikeId) {
+            // ✅ إلغاء الإعجاب: نرسل kind 5
             const deleteEvent = await signEvent({
                 kind: 5,
                 created_at: Math.floor(Date.now() / 1000),
@@ -33,6 +34,7 @@ async function likePost(postId, postPubkey) {
             updateLikeUI(postId, false);
             showToast('تم إلغاء الإعجاب', 'success');
         } else {
+            // ✅ إعجاب جديد
             const likeEvent = await signEvent({
                 kind: 7,
                 created_at: Math.floor(Date.now() / 1000),
@@ -93,38 +95,39 @@ function syncLikeCountUI(postId) {
 }
 
 // ============================
-// 14. اشتراك الإعجابات والردود (معدل)
+// 14. اشتراك الإعجابات والردود (معدل لمنع التكرار)
 // ============================
 
 let reactionSubscribeTimeout = null;
 let isReactionSubscribing = false;
-let pastLikesFetched = false;
 
 function startReactionSubscription() {
-    if (isReactionSubscribing) return;
-    if (reactionSubscribeTimeout) {
-        clearTimeout(reactionSubscribeTimeout);
-        reactionSubscribeTimeout = null;
+    if (isReactionSubscribing) {
+        console.log('[Reactions] اشتراك قيد التشغيل بالفعل، تجاهل');
+        return;
+    }
+
+    if (reactionsSubscription) {
+        try { reactionsSubscription.close(); } catch(e) {}
+        reactionsSubscription = null;
     }
 
     const postIds = Array.from(postStats.keys());
     if (!postIds.length) {
-        reactionSubscribeTimeout = setTimeout(startReactionSubscription, 5000);
+        if (reactionSubscribeTimeout) clearTimeout(reactionSubscribeTimeout);
+        reactionSubscribeTimeout = setTimeout(() => {
+            startReactionSubscription();
+        }, 3000);
         return;
     }
 
     console.log('[Reactions] بدء اشتراك الإعجابات والإلغاءات لـ', postIds.length, 'بوست');
     isReactionSubscribing = true;
 
-    if (!pastLikesFetched) {
-        fetchPastLikesAndDeletes(postIds);
-        pastLikesFetched = true;
-    }
+    // جلب الإعجابات والإلغاءات السابقة
+    fetchPastLikesAndDeletes(postIds);
 
-    if (reactionsSubscription) {
-        try { reactionsSubscription.close(); } catch(e) {}
-    }
-
+    // الاشتراك في الأحداث الجديدة
     reactionsSubscription = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': postIds },
         { kinds: [5] },
@@ -145,18 +148,22 @@ function startReactionSubscription() {
         oneose: () => {
             isReactionSubscribing = false;
             if (reactionSubscribeTimeout) clearTimeout(reactionSubscribeTimeout);
-            reactionSubscribeTimeout = setTimeout(startReactionSubscription, 30000);
+            reactionSubscribeTimeout = setTimeout(() => {
+                startReactionSubscription();
+            }, 30000);
         },
         onclose: () => {
             isReactionSubscribing = false;
             if (reactionSubscribeTimeout) clearTimeout(reactionSubscribeTimeout);
-            reactionSubscribeTimeout = setTimeout(startReactionSubscription, 30000);
+            reactionSubscribeTimeout = setTimeout(() => {
+                startReactionSubscription();
+            }, 10000);
         }
     });
 }
 
 // ============================
-// 15. جلب الإعجابات والإلغاءات السابقة (مرة واحدة)
+// 15. جلب الإعجابات والإلغاءات السابقة
 // ============================
 
 function fetchPastLikesAndDeletes(postIds) {
@@ -260,7 +267,7 @@ function handleLikeEvent(event) {
 }
 
 // ============================
-// 18. دالة لجلب إعجابات بوست جديد (تُستدعى من renderPost)
+// 18. دالة لجلب إعجابات بوست جديد
 // ============================
 
 function fetchLikesForNewPost(postId) {
