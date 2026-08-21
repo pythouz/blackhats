@@ -24,13 +24,43 @@ function switchView(viewName) {
 
     // إذا تم فتح الإعدادات، نتحقق من ظهور زر الإدارة
     if (viewName === 'settings') {
-        const adminBtn = document.getElementById('settings-admin-btn');
-        if (adminBtn) {
-            const adminHex = window.ADMIN_PUBKEY_HEX;
-            if (pk && adminHex && pk === adminHex) {
-                adminBtn.classList.remove('hidden');
+        updateSettingsUI();
+    }
+}
+
+function updateSettingsUI() {
+    const adminBtn = document.getElementById('settings-admin-btn');
+    const loginPrompt = document.getElementById('settings-login-prompt');
+    
+    if (adminBtn) {
+        const isAdmin = window.isCurrentUserAdmin ? window.isCurrentUserAdmin() : false;
+        if (isAdmin) {
+            adminBtn.classList.remove('hidden');
+            if (loginPrompt) loginPrompt.classList.add('hidden');
+        } else {
+            adminBtn.classList.add('hidden');
+            // إظهار رسالة تسجيل الدخول
+            if (loginPrompt) {
+                loginPrompt.classList.remove('hidden');
             } else {
-                adminBtn.classList.add('hidden');
+                // إنشاء رسالة تسجيل الدخول إذا لم تكن موجودة
+                const container = adminBtn.parentElement;
+                const prompt = document.createElement('div');
+                prompt.id = 'settings-login-prompt';
+                prompt.className = 'p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 mt-4';
+                prompt.innerHTML = `
+                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
+                        🔑 أنت لست مسجلاً كمدير. لتتمكن من حظر المستخدمين، سجل الدخول بمفتاح المدير الخاص.
+                    </p>
+                    <button onclick="importKeyFromHeader()" 
+                            class="w-full bg-accent text-white py-2 rounded-xl text-sm font-bold hover:opacity-90 transition">
+                        <i class="fas fa-key"></i> تسجيل الدخول كمستخدم
+                    </button>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        استخدم المفتاح الخاص (nsec) الخاص بحساب المدير
+                    </p>
+                `;
+                container.appendChild(prompt);
             }
         }
     }
@@ -83,9 +113,6 @@ function removeBanner() {
 // 20. نظام الحظر — واجهة المستخدم (بدون إشعارات)
 // ============================
 
-/**
- * تُضاف زر الحظر/إلغاء الحظر إلى منطقة الأزرار (بجانب الإعجاب والتعليق)
- */
 function addBanButtonToPost(postElement, postPubkey) {
     const adminHex = window.ADMIN_PUBKEY_HEX;
     if (!adminHex || !pk) return;
@@ -108,9 +135,6 @@ function addBanButtonToPost(postElement, postPubkey) {
     actionsContainer.appendChild(btn);
 }
 
-/**
- * تبديل حالة الحظر - بدون إشعارات نجاح
- */
 async function toggleBanUser(targetPubkey) {
     const adminHex = window.ADMIN_PUBKEY_HEX;
     if (pk !== adminHex) {
