@@ -27,8 +27,8 @@ const INITIAL_FEED_LIMIT = 300;
 // 2. نظام الحظر — إعدادات المدير
 // ============================
 
-// 🔑 المفتاح العام للمدير بصيغة hex (64 حرفاً) - تم تحويله من npub الخاص بك
-const ADMIN_PUBKEY_HEX = '7d36357917c763d308061d4b1a45747688004f84c8c7f9983946227653554583';
+// 🔑 المفتاح العام للمدير - الصق الـ npub بتاعك زي ما هو، مفيش داعي تحوله يدوياً
+const ADMIN_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
 
 // نوع الحدث المخصص للحظر
 const BAN_EVENT_KIND = 20001;
