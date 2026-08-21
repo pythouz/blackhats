@@ -164,14 +164,32 @@ function openAdminPanel() {
         panel.innerHTML = `
             <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-gray-900 dark:text-white">👮 لوحة التحكم - المحظورون</h2>
+                    <h2 class="text-xl font-bold text-gray-900 dark:text-white">👮 لوحة التحكم</h2>
                     <button onclick="closeAdminPanel()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
                         <i class="fas fa-times text-xl"></i>
                     </button>
                 </div>
-                <div id="banned-list" class="space-y-2"></div>
-                <div class="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                    عدد المحظورين: <span id="banned-count">0</span>
+
+                <div class="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+                    <button id="admin-tab-registrations" onclick="switchAdminTab('registrations')"
+                            class="px-3 py-2 text-sm font-bold border-b-2 border-accent text-accent">
+                        طلبات التسجيل <span id="registrations-count-badge" class="ml-1 bg-red-500 text-white rounded-full px-2 text-xs">0</span>
+                    </button>
+                    <button id="admin-tab-banned" onclick="switchAdminTab('banned')"
+                            class="px-3 py-2 text-sm font-bold border-b-2 border-transparent text-gray-400">
+                        المحظورون
+                    </button>
+                </div>
+
+                <div id="admin-tab-content-registrations">
+                    <div id="registrations-list" class="space-y-2"></div>
+                </div>
+
+                <div id="admin-tab-content-banned" class="hidden">
+                    <div id="banned-list" class="space-y-2"></div>
+                    <div class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                        عدد المحظورين: <span id="banned-count">0</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -181,8 +199,28 @@ function openAdminPanel() {
         });
     }
     renderBannedList();
+    if (typeof renderPendingRegistrationsPanel === 'function') renderPendingRegistrationsPanel();
     panel.classList.remove('hidden');
     adminPanelOpen = true;
+}
+
+function switchAdminTab(tab) {
+    const regTab = document.getElementById('admin-tab-registrations');
+    const banTab = document.getElementById('admin-tab-banned');
+    const regContent = document.getElementById('admin-tab-content-registrations');
+    const banContent = document.getElementById('admin-tab-content-banned');
+    if (!regTab || !banTab || !regContent || !banContent) return;
+
+    const activate = (btn) => { btn.classList.add('border-accent', 'text-accent'); btn.classList.remove('border-transparent', 'text-gray-400'); };
+    const deactivate = (btn) => { btn.classList.remove('border-accent', 'text-accent'); btn.classList.add('border-transparent', 'text-gray-400'); };
+
+    if (tab === 'registrations') {
+        activate(regTab); deactivate(banTab);
+        regContent.classList.remove('hidden'); banContent.classList.add('hidden');
+    } else {
+        activate(banTab); deactivate(regTab);
+        banContent.classList.remove('hidden'); regContent.classList.add('hidden');
+    }
 }
 
 function closeAdminPanel() {
