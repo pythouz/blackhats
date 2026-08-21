@@ -4,72 +4,28 @@
    ========================================================= */
 
 // ============================
-// تحويل npub إلى hex
+// التحقق من ADMIN_PUBKEY_HEX
 // ============================
 
-let ADMIN_PUBKEY_HEX = null;
-
-function convertAdminPubkey() {
-    // 1. استخدام الـ override إذا كان موجوداً وصحيحاً
-    if (typeof ADMIN_PUBKEY_HEX_OVERRIDE !== 'undefined' && 
-        ADMIN_PUBKEY_HEX_OVERRIDE && 
-        ADMIN_PUBKEY_HEX_OVERRIDE.length === 64 &&
-        /^[0-9a-fA-F]{64}$/.test(ADMIN_PUBKEY_HEX_OVERRIDE)) {
-        ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_HEX_OVERRIDE.toLowerCase();
-        console.log('[Admin] ✅ استخدام ADMIN_PUBKEY_HEX_OVERRIDE:', ADMIN_PUBKEY_HEX);
-        return;
+function validateAdminPubkey() {
+    // التحقق من أن ADMIN_PUBKEY_HEX معرف وصحيح (64 حرفاً، أحرف hex فقط)
+    if (typeof ADMIN_PUBKEY_HEX !== 'undefined' && 
+        ADMIN_PUBKEY_HEX && 
+        ADMIN_PUBKEY_HEX.length === 64 &&
+        /^[0-9a-fA-F]{64}$/.test(ADMIN_PUBKEY_HEX)) {
+        // تحويل إلى أحرف صغيرة للتوحيد
+        const hex = ADMIN_PUBKEY_HEX.toLowerCase();
+        // إعادة تعيين القيمة الموحدة
+        window.ADMIN_PUBKEY_HEX = hex;
+        console.log('[Admin] ✅ تم تحميل ADMIN_PUBKEY_HEX:', hex);
+        return true;
+    } else {
+        console.error('[Admin] ❌ ADMIN_PUBKEY_HEX غير صحيح في config.js.');
+        console.error('[Admin] 🔧 تأكد من أنه 64 حرفاً هكساديسيمال (0-9, a-f).');
+        console.error('[Admin] 💡 مثال: eaebb02e7b42c652bf8db5e28fd27acc1412a77705fd6b473db710499ac9e0a9');
+        window.ADMIN_PUBKEY_HEX = null;
+        return false;
     }
-
-    // 2. محاولة التحويل التلقائي من npub
-    if (ADMIN_PUBKEY_NPUB && ADMIN_PUBKEY_NPUB.startsWith('npub1')) {
-        try {
-            // استخدام nip19.decode المتوفرة في nostr-tools
-            const decoded = NostrTools.nip19.decode(ADMIN_PUBKEY_NPUB);
-            if (decoded && decoded.type === 'npub' && decoded.data) {
-                // تحويل Uint8Array إلى hex (32 بايت = 64 حرف)
-                ADMIN_PUBKEY_HEX = Array.from(decoded.data)
-                    .map(b => b.toString(16).padStart(2, '0'))
-                    .join('');
-
-                if (ADMIN_PUBKEY_HEX.length === 64) {
-                    console.log('[Admin] ✅ تم تحويل npub إلى hex تلقائياً:', ADMIN_PUBKEY_HEX);
-                    return;
-                } else {
-                    console.warn('[Admin] ⚠️ تحويل npub أعطى طولاً غير صحيح:', ADMIN_PUBKEY_HEX.length);
-                }
-            }
-        } catch (e) {
-            console.error('[Admin] ❌ فشل تحويل npub باستخدام nip19.decode:', e);
-        }
-
-        // محاولة بديلة: استخدام npubDecode إذا كانت موجودة
-        try {
-            if (typeof NostrTools.nip19.npubDecode === 'function') {
-                const bytes = NostrTools.nip19.npubDecode(ADMIN_PUBKEY_NPUB);
-                if (bytes && bytes.length === 32) {
-                    ADMIN_PUBKEY_HEX = Array.from(bytes)
-                        .map(b => b.toString(16).padStart(2, '0'))
-                        .join('');
-                    if (ADMIN_PUBKEY_HEX.length === 64) {
-                        console.log('[Admin] ✅ تم تحويل npub إلى hex باستخدام npubDecode:', ADMIN_PUBKEY_HEX);
-                        return;
-                    }
-                }
-            }
-        } catch (e2) {
-            console.error('[Admin] ❌ فشل npubDecode:', e2);
-        }
-    }
-
-    // 3. إذا وصلنا هنا، فشل التحويل
-    ADMIN_PUBKEY_HEX = null;
-    console.error('[Admin] ❌ تعذر تحويل ADMIN_PUBKEY_NPUB إلى hex صحيح.');
-    console.error('[Admin] 💡 الحل: ضع hex مباشرة في ADMIN_PUBKEY_HEX_OVERRIDE داخل config.js');
-    console.error('[Admin] 🔧 للحصول على hex من npub، افتح وحدة التحكم (F12) والصق:');
-    console.error('[Admin]    const npub = "' + ADMIN_PUBKEY_NPUB + '";');
-    console.error('[Admin]    const decoded = NostrTools.nip19.decode(npub);');
-    console.error('[Admin]    const hex = Array.from(decoded.data).map(b => b.toString(16).padStart(2, "0")).join("");');
-    console.error('[Admin]    console.log(hex);');
 }
 
 // ============================
@@ -79,17 +35,13 @@ function convertAdminPubkey() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Pulse] بدء التشغيل');
 
-    // تحويل مفتاح المدير
-    convertAdminPubkey();
+    // التحقق من صحة مفتاح المدير
+    const isValid = validateAdminPubkey();
 
-    // التحقق النهائي
-    if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
-        console.error('[Admin] ❌ ADMIN_PUBKEY_HEX غير صحيح. نظام الحظر لن يعمل.');
-        showToast('⚠️ خطأ في إعدادات المدير: تحقق من npub أو استخدم hex مباشرة', 'error');
+    if (!isValid) {
+        showToast('⚠️ خطأ في إعدادات المدير: تأكد من ADMIN_PUBKEY_HEX في config.js', 'error');
     } else {
         console.log('[Admin] ✅ تم تعيين ADMIN_PUBKEY_HEX بنجاح');
-        // نعرض رسالة تأكيد قصيرة (اختياري)
-        // showToast('✅ تم تحميل إعدادات المدير', 'success');
     }
 
     // إعداد الثيم
@@ -130,14 +82,15 @@ let banSubscription = null;
 
 async function loadBanList() {
     return new Promise((resolve) => {
-        if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
+        const adminHex = window.ADMIN_PUBKEY_HEX;
+        if (!adminHex || adminHex.length !== 64) {
             console.warn('[Moderation] ADMIN_PUBKEY_HEX غير صحيح، تخطي تحميل قائمة الحظر');
             resolve();
             return;
         }
 
         const events = [];
-        const sub = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY_HEX] }], {
+        const sub = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [adminHex] }], {
             onevent: (event) => {
                 events.push(event);
             },
@@ -184,14 +137,15 @@ async function loadBanList() {
 }
 
 function subscribeToBanEvents() {
-    if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex || adminHex.length !== 64) {
         console.warn('[Moderation] ADMIN_PUBKEY_HEX غير صحيح، تخطي الاشتراك في أحداث الحظر');
         return;
     }
     if (banSubscription) {
         try { banSubscription.close(); } catch(e) {}
     }
-    banSubscription = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY_HEX] }], {
+    banSubscription = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [adminHex] }], {
         onevent: (event) => {
             processBanEvent(event);
         },
@@ -274,6 +228,3 @@ window.renderBannedList = renderBannedList;
 window.addBanButtonToPost = addBanButtonToPost;
 window.processBanEvent = processBanEvent;
 window.applyBanFilter = applyBanFilter;
-
-// جعل ADMIN_PUBKEY_HEX متاحاً عالمياً
-window.ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_HEX;
