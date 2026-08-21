@@ -87,7 +87,6 @@ function renderPost(event) {
         hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
     });
     const displayName = getDisplayName(event.pubkey);
-    const isOwner = (event.pubkey === pk);
     const contentHtml = renderMediaContent(event.content);
 
     const div = document.createElement('div');
@@ -98,13 +97,13 @@ function renderPost(event) {
     div.innerHTML = `
         <div class="flex justify-between items-start mb-4">
             <div class="flex items-center gap-3 min-w-0">
-                <div class="avatar-slot flex-shrink-0">${avatarHtml(event.pubkey, 'w-11 h-11 text-base')}</div>
+                <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${event.pubkey}')">${avatarHtml(event.pubkey, 'w-11 h-11 text-base')}</div>
                 <div class="min-w-0 flex-1">
                     <div class="author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</div>
                     <div class="text-xs text-gray-400">${escapeHtml(time)}</div>
                 </div>
             </div>
-            ${isOwner ? `
+            ${event.pubkey === pk ? `
             <div class="flex gap-1 flex-shrink-0">
                 <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
                 <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
