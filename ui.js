@@ -79,7 +79,7 @@ function removeBanner() {
 }
 
 // ============================
-// 20. نظام الحظر — واجهة المستخدم (بدون إشعارات)
+// 20. نظام الحظر — واجهة المستخدم
 // ============================
 
 function addBanButtonToPost(postElement, postPubkey) {
@@ -269,7 +269,7 @@ function searchUser() {
         try {
             const decoded = NostrTools.nip19.decode(query);
             if (decoded.type === 'npub') {
-                pubkey = decoded.data; // nostr-tools 2.x يرجّع hex string جاهز مباشرة
+                pubkey = decoded.data;
             }
         } catch (e) {
             showToast('npub غير صالح', 'error');
@@ -337,12 +337,10 @@ function importKeyFromHeader() {
 
 function logout() {
     if (!confirm('هل أنت متأكد من تسجيل الخروج؟ سيتم حذف المفتاح الخاص من هذا المتصفح.')) return;
-    
-    // حذف المفتاح من localStorage
+
     localStorage.removeItem(storageKey);
     localStorage.removeItem('pulse_nsec_hex');
-    
-    // إعادة تحميل الصفحة لإنشاء هوية جديدة
+
     showToast('تم تسجيل الخروج ✅', 'success');
     setTimeout(() => {
         window.location.reload();
