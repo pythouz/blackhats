@@ -22,7 +22,6 @@ function switchView(viewName) {
     }
     localStorage.setItem('pulse_view', viewName);
 
-    // إذا تم فتح الإعدادات، نتحقق من ظهور زر الإدارة
     if (viewName === 'settings') {
         updateSettingsUI();
     }
@@ -37,15 +36,11 @@ function updateSettingsUI() {
         if (isAdmin) {
             adminBtn.classList.remove('hidden');
             if (loginPrompt) loginPrompt.classList.add('hidden');
-            // تحديث النص إذا كان موجوداً
-            console.log('[Settings] أنت مدير ✅');
         } else {
             adminBtn.classList.add('hidden');
-            // إظهار رسالة تسجيل الدخول
             if (loginPrompt) {
                 loginPrompt.classList.remove('hidden');
             } else {
-                // إنشاء رسالة تسجيل الدخول إذا لم تكن موجودة
                 const container = adminBtn.parentElement;
                 const prompt = document.createElement('div');
                 prompt.id = 'settings-login-prompt';
@@ -55,7 +50,7 @@ function updateSettingsUI() {
                         🔑 أنت لست مسجلاً كمدير
                     </p>
                     <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                        لتتمكن من حظر المستخدمين، يجب تسجيل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
+                        لتتمكن من حظر المستخدمين، سجل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
                     </p>
                     <button onclick="importKeyFromHeader()" 
                             class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition">
@@ -327,4 +322,22 @@ function searchUser() {
 
 function importKeyFromHeader() {
     importKey();
+}
+
+// ============================
+// 23. تسجيل الخروج
+// ============================
+
+function logout() {
+    if (!confirm('هل أنت متأكد من تسجيل الخروج؟ سيتم حذف المفتاح الخاص من هذا المتصفح.')) return;
+    
+    // حذف المفتاح من localStorage
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem('pulse_nsec_hex');
+    
+    // إعادة تحميل الصفحة لإنشاء هوية جديدة
+    showToast('تم تسجيل الخروج ✅', 'success');
+    setTimeout(() => {
+        window.location.reload();
+    }, 800);
 }
