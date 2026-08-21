@@ -37,6 +37,8 @@ function updateSettingsUI() {
         if (isAdmin) {
             adminBtn.classList.remove('hidden');
             if (loginPrompt) loginPrompt.classList.add('hidden');
+            // تحديث النص إذا كان موجوداً
+            console.log('[Settings] أنت مدير ✅');
         } else {
             adminBtn.classList.add('hidden');
             // إظهار رسالة تسجيل الدخول
@@ -49,15 +51,18 @@ function updateSettingsUI() {
                 prompt.id = 'settings-login-prompt';
                 prompt.className = 'p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 mt-4';
                 prompt.innerHTML = `
-                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
-                        🔑 أنت لست مسجلاً كمدير. لتتمكن من حظر المستخدمين، سجل الدخول بمفتاح المدير الخاص.
+                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2 font-bold">
+                        🔑 أنت لست مسجلاً كمدير
+                    </p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                        لتتمكن من حظر المستخدمين، يجب تسجيل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
                     </p>
                     <button onclick="importKeyFromHeader()" 
-                            class="w-full bg-accent text-white py-2 rounded-xl text-sm font-bold hover:opacity-90 transition">
+                            class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition">
                         <i class="fas fa-key"></i> تسجيل الدخول كمستخدم
                     </button>
                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                        استخدم المفتاح الخاص (nsec) الخاص بحساب المدير
+                        الصق المفتاح الخاص (nsec) الخاص بحساب المدير
                     </p>
                 `;
                 container.appendChild(prompt);
