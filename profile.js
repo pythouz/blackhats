@@ -359,3 +359,234 @@ function fetchProfiles(pubkeys) {
         } catch(e) { console.warn('[Profile] فشل جلب:', e); }
     }, 300);
 }
+
+// ==============================================================
+//  دوال صفحة الملف الشخصي (Profile Page)  (جديد)
+// ==============================================================
+
+let currentProfilePubkey = null;
+let profilePostsSubscription = null;
+let profilePostsLimit = 20;
+let profileOldestTimestamp = null;
+
+function openProfilePage(pubkey) {
+    if (!pubkey) { showToast('لا يوجد مفتاح للمستخدم', 'error'); return; }
+    // إخفاء جميع الـ views
+    document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+    const profileView = document.getElementById('view-profile');
+    if (profileView) profileView.classList.remove('hidden');
+    currentProfilePubkey = pubkey;
+    // جلب البيانات
+    loadProfileData(pubkey);
+}
+
+function closeProfilePage() {
+    const profileView = document.getElementById('view-profile');
+    if (profileView) profileView.classList.add('hidden');
+    // العودة للفيد أو الغرفة حسب آخر view مخزن
+    const savedView = localStorage.getItem('pulse_view') || 'timeline';
+    switchView(savedView);
+    // إلغاء اشتراك المنشورات
+    if (profilePostsSubscription) {
+        try { profilePostsSubscription.close(); } catch(e) {}
+        profilePostsSubscription = null;
+    }
+    currentProfilePubkey = null;
+    profilePosts = [];
+    profileOldestTimestamp = null;
+}
+
+async function loadProfileData(pubkey) {
+    // جلب الميتاداتا
+    const sub = pool.subscribeMany(RELAYS, [{ kinds: [0], authors: [pubkey], limit: 1 }], {
+        onevent: (event) => {
+            try {
+                const meta = JSON.parse(event.content || '{}');
+                renderProfilePage(pubkey, meta);
+            } catch(e) { showToast('خطأ في قراءة البيانات', 'error'); }
+        },
+        oneose: () => {
+            // إذا لم يصل حدث، نعرض بيانات من الكاش إن وجدت
+            const cached = profileCache.get(pubkey);
+            if (cached) {
+                renderProfilePage(pubkey, { name: cached.name || '', picture: cached.picture || '', about: cached.about || '' });
+            } else {
+                renderProfilePage(pubkey, {});
+            }
+            sub.close();
+        }
+    });
+    // تحميل المنشورات
+    loadProfilePosts(pubkey);
+}
+
+function renderProfilePage(pubkey, meta) {
+    const name = meta.display_name || meta.name || 'مجهول';
+    const picture = meta.picture || '';
+    const banner = meta.banner || '';
+    const about = meta.about || '';
+    const location = meta.location || '';
+    const website = meta.website || '';
+
+    const nameEl = document.getElementById('profile-page-name');
+    if (nameEl) nameEl.textContent = name;
+
+    const npubEl = document.getElementById('profile-page-npub');
+    if (npubEl) {
+        try {
+            const npubFormatted = NostrTools.nip19.npubEncode(pubkey);
+            npubEl.textContent = npubFormatted;
+        } catch(e) { npubEl.textContent = pubkey.slice(0,16)+'...'; }
+    }
+
+    const avatarImg = document.getElementById('profile-page-avatar');
+    const avatarLetter = document.getElementById('profile-page-avatar-letter');
+    if (picture) {
+        avatarImg.src = picture;
+        avatarImg.classList.remove('hidden');
+        avatarLetter.classList.add('hidden');
+    } else {
+        avatarImg.classList.add('hidden');
+        avatarLetter.classList.remove('hidden');
+        avatarLetter.textContent = (name || 'P').slice(0,1).toUpperCase();
+    }
+
+    const coverImg = document.getElementById('profile-cover-img');
+    const coverEmpty = document.getElementById('profile-cover-empty');
+    if (banner) {
+        coverImg.src = banner;
+        coverImg.classList.remove('hidden');
+        coverEmpty.classList.add('hidden');
+    } else {
+        coverImg.classList.add('hidden');
+        coverEmpty.classList.remove('hidden');
+    }
+
+    const aboutEl = document.getElementById('profile-page-about');
+    if (aboutEl) aboutEl.textContent = about || '';
+
+    const locationEl = document.getElementById('profile-page-location');
+    if (location) {
+        locationEl.classList.remove('hidden');
+        locationEl.querySelector('span').textContent = location;
+    } else {
+        locationEl.classList.add('hidden');
+    }
+
+    const websiteEl = document.getElementById('profile-page-website');
+    if (website) {
+        websiteEl.classList.remove('hidden');
+        const link = websiteEl.querySelector('a');
+        link.href = website.startsWith('http') ? website : 'https://'+website;
+        link.textContent = website.replace(/^https?:\/\//, '');
+    } else {
+        websiteEl.classList.add('hidden');
+    }
+
+    // تاريخ الانضمام (تقريبي)
+    const joinedEl = document.getElementById('profile-page-joined');
+    if (joinedEl) joinedEl.textContent = 'تاريخ غير معروف';
+
+    // تخزين في الكاش
+    profileCache.set(pubkey, { name, picture, about });
+}
+
+function loadProfilePosts(pubkey, until) {
+    if (profilePostsSubscription) {
+        try { profilePostsSubscription.close(); } catch(e) {}
+    }
+    const loading = document.getElementById('profile-loading-posts');
+    if (loading) loading.classList.remove('hidden');
+
+    const filters = {
+        kinds: [1],
+        authors: [pubkey],
+        limit: profilePostsLimit
+    };
+    if (until) filters.until = until;
+
+    profilePostsSubscription = pool.subscribeMany(RELAYS, [filters], {
+        onevent: (event) => {
+            if (event.kind === 5) return; // حذف
+            if (bannedPubkeys.has(event.pubkey)) return;
+            renderProfilePost(event);
+        },
+        oneose: () => {
+            if (loading) loading.classList.add('hidden');
+            const moreContainer = document.getElementById('profile-load-more-container');
+            if (moreContainer) {
+                const postsCount = document.querySelectorAll('#profile-posts-container .post-card').length;
+                if (postsCount >= profilePostsLimit) {
+                    moreContainer.classList.remove('hidden');
+                } else {
+                    moreContainer.classList.add('hidden');
+                }
+            }
+        }
+    });
+}
+
+function renderProfilePost(event) {
+    const container = document.getElementById('profile-posts-container');
+    if (!container) return;
+
+    const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' });
+    const displayName = getDisplayName(event.pubkey);
+    const contentHtml = renderMediaContent(event.content);
+    const div = document.createElement('div');
+    div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
+    div.dataset.postId = event.id;
+    div.dataset.pubkey = event.pubkey;
+    div.dataset.createdAt = event.created_at;
+
+    div.innerHTML = `
+        <div class="flex justify-between items-start mb-4">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${event.pubkey}')">${avatarHtml(event.pubkey, 'w-11 h-11 text-base')}</div>
+                <div class="min-w-0 flex-1">
+                    <div class="author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</div>
+                    <div class="text-xs text-gray-400">${escapeHtml(time)}</div>
+                </div>
+            </div>
+            ${event.pubkey === pk ? `
+            <div class="flex gap-1 flex-shrink-0">
+                <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
+                <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
+            </div>
+            ` : ''}
+        </div>
+        <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
+        <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
+            <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${event.id}', '${event.pubkey}')" data-liked="false" data-postid="${event.id}">
+                <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
+            </button>
+            <button class="reply-button flex items-center gap-1 hover:text-accent transition" onclick="replyToPost('${event.id}', '${event.pubkey}')" title="اكتب تعليقًا">
+                <i class="far fa-comment"></i> <span>تعليق</span>
+            </button>
+            <button class="reply-toggle-button flex items-center gap-1 hover:text-accent hover:underline transition" onclick="toggleReplies('${event.id}')" title="عرض التعليقات">
+                <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
+                <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
+            </button>
+        </div>
+        <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
+    `;
+    container.appendChild(div);
+    fetchProfiles([event.pubkey]);
+    addBanButtonToPost(div, event.pubkey);
+    processPendingReplies(event.id);
+}
+
+function loadMoreProfilePosts() {
+    const container = document.getElementById('profile-posts-container');
+    if (!container) return;
+    const cards = container.querySelectorAll('.post-card');
+    if (!cards.length) return;
+    let oldest = Infinity;
+    for (const card of cards) {
+        const created = parseInt(card.dataset.createdAt);
+        if (!isNaN(created) && created < oldest) oldest = created;
+    }
+    if (oldest === Infinity) return;
+    profileOldestTimestamp = oldest;
+    loadProfilePosts(currentProfilePubkey, oldest);
+}
