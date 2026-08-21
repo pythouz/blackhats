@@ -17,7 +17,7 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- DOMPurify (يجب تحميله قبل app.js) -->
+    <!-- DOMPurify -->
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -247,7 +247,13 @@
     <!-- ========== HEADER ========== -->
     <header class="fixed top-0 w-full z-50 glass transition-colors duration-300">
         <div class="max-w-2xl mx-auto px-2 sm:px-4 py-3 flex items-center gap-2 min-w-0">
-            <!-- Search bar -->
+
+            <!-- Logo / Title -->
+            <h1 class="text-2xl sm:text-3xl font-black tracking-tight shrink-0">
+                <span class="gradient-text">Pulse</span>
+            </h1>
+
+            <!-- Search bar (middle) -->
             <div class="flex-1 min-w-0 relative">
                 <input id="search-input" type="text" placeholder="ابحث بمفتاح عام (npub أو hex)..."
                        class="w-full bg-gray-100/80 dark:bg-surface/80 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:text-white">
@@ -256,7 +262,9 @@
                 </button>
             </div>
 
+            <!-- Right side: theme, import key, npub display, avatar -->
             <div class="flex items-center gap-1.5 flex-shrink-0">
+
                 <!-- Theme toggle -->
                 <button onclick="toggleTheme()"
                         class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0">
@@ -271,12 +279,21 @@
                     <i class="fas fa-key text-gray-700 dark:text-gray-300 text-base"></i>
                 </button>
 
+                <!-- NPUB display (click to copy) -->
+                <div onclick="copyNpub()"
+                     class="flex items-center gap-1.5 bg-gray-100/80 dark:bg-surface/80 px-2 sm:px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200/80 dark:hover:bg-gray-800 transition min-w-0 shrink">
+                    <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0"></span>
+                    <span id="npub-display" class="text-[10px] sm:text-xs font-mono text-gray-700 dark:text-gray-300 truncate max-w-[80px] sm:max-w-[120px]">جاري...</span>
+                    <span id="nip07-badge" class="hidden text-[8px] sm:text-[10px] font-bold bg-green-500/20 text-green-600 dark:text-green-400 px-1 py-0.5 rounded flex-shrink-0">NIP-07</span>
+                </div>
+
                 <!-- Profile avatar -->
                 <button onclick="openProfileModal()"
                         class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-accent to-accent2 flex items-center justify-center shrink-0 shadow-md hover:shadow-lg transition">
                     <img id="header-avatar-img" src="" alt="" class="hidden w-full h-full object-cover">
                     <span id="header-avatar-fallback" class="text-white text-sm font-black">P</span>
                 </button>
+
             </div>
         </div>
     </header>
@@ -558,7 +575,7 @@
                     <span class="dark:text-white">تصدير المفتاح الخاص (nsec)</span>
                 </button>
 
-                <!-- Import key (مكرر لكن مفيد هنا) -->
+                <!-- Import key -->
                 <button onclick="importKey()"
                         class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
                     <i class="fas fa-file-import text-green-500 w-6"></i>
