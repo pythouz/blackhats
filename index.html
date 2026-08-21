@@ -262,16 +262,15 @@
                 </button>
             </div>
 
-            <!-- Right side: npub display + avatar (only) -->
+            <!-- Right side: Login (key) + Profile avatar -->
             <div class="flex items-center gap-1.5 flex-shrink-0">
 
-                <!-- NPUB display (click to copy) -->
-                <div onclick="copyNpub()"
-                     class="flex items-center gap-1.5 bg-gray-100/80 dark:bg-surface/80 px-2 sm:px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200/80 dark:hover:bg-gray-800 transition min-w-0 shrink">
-                    <span class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0"></span>
-                    <span id="npub-display" class="text-[10px] sm:text-xs font-mono text-gray-700 dark:text-gray-300 truncate max-w-[80px] sm:max-w-[120px]">جاري...</span>
-                    <span id="nip07-badge" class="hidden text-[8px] sm:text-[10px] font-bold bg-green-500/20 text-green-600 dark:text-green-400 px-1 py-0.5 rounded flex-shrink-0">NIP-07</span>
-                </div>
+                <!-- Login button (استيراد المفتاح الخاص) -->
+                <button onclick="importKeyFromHeader()"
+                        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-200/70 dark:hover:bg-gray-700/50 transition shrink-0"
+                        title="تسجيل الدخول بمفتاح خاص">
+                    <i class="fas fa-key text-gray-700 dark:text-gray-300 text-base"></i>
+                </button>
 
                 <!-- Profile avatar -->
                 <button onclick="openProfileModal()"
