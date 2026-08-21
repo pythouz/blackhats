@@ -30,28 +30,25 @@ async function decryptFromUser(ciphertext, userPubkey) {
 // ============================
 
 async function initAccessControl() {
-    if (!pk) return true; // لا هوية، نسمح مؤقتاً
+    if (!pk) return true;
     const adminHex = window.ADMIN_PUBKEY_HEX;
     if (pk === adminHex) {
         myAccessStatus = 'approved';
         return true;
     }
 
-    // التحقق من الكاش المحلي
     loadApprovedCache();
     if (approvedPubkeys.has(pk)) {
         myAccessStatus = 'approved';
         return true;
     }
 
-    // جلب قائمة الموافقات من السيرفرات
     await loadApprovalList();
     if (approvedPubkeys.has(pk)) {
         myAccessStatus = 'approved';
         return true;
     }
 
-    // عرض بوابة التسجيل
     renderAccessGate();
     return false;
 }
