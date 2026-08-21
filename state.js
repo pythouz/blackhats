@@ -36,6 +36,13 @@ const pendingRepliesMap = new Map();  // rootId -> [event, ...]
 // ============================
 const bannedPubkeys = new Set();      // مجموعة المفاتيح العامة المحظورة
 
+// ============================
+// نظام التسجيل بموافقة الإدارة (جديد)
+// ============================
+const approvedPubkeys = new Set();      // المستخدمين الموافق عليهم من المدير
+const pendingRegistrations = new Map(); // pubkey -> { email, phone, created_at, eventId } (تُفك تشفيرها للمدير فقط)
+let myAccessStatus = 'checking';        // 'checking' | 'not_registered' | 'pending' | 'approved'
+
 function initPostState(id, createdAt) {
     postStats.set(id, { likes: 0, replies: 0, createdAt, myLikeEventId: null });
     postLikers.set(id, new Map());
