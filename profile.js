@@ -366,7 +366,7 @@ function fetchProfiles(pubkeys) {
 
 let currentProfilePubkey = null;
 let profilePostsSubscription = null;
-let profilePostsLimit = 20;
+let profilePostsLimit = 30;  // زيادة للاختبار
 let profileOldestTimestamp = null;
 
 function openProfilePage(pubkey) {
@@ -383,17 +383,17 @@ function openProfilePage(pubkey) {
 function closeProfilePage() {
     const profileView = document.getElementById('view-profile');
     if (profileView) profileView.classList.add('hidden');
-    // العودة للفيد أو الغرفة حسب آخر view مخزن
     const savedView = localStorage.getItem('pulse_view') || 'timeline';
     switchView(savedView);
-    // إلغاء اشتراك المنشورات
     if (profilePostsSubscription) {
         try { profilePostsSubscription.close(); } catch(e) {}
         profilePostsSubscription = null;
     }
     currentProfilePubkey = null;
-    profilePosts = [];
     profileOldestTimestamp = null;
+    // مسح المحتوى القديم
+    const container = document.getElementById('profile-posts-container');
+    if (container) container.innerHTML = '';
 }
 
 async function loadProfileData(pubkey) {
@@ -406,7 +406,6 @@ async function loadProfileData(pubkey) {
             } catch(e) { showToast('خطأ في قراءة البيانات', 'error'); }
         },
         oneose: () => {
-            // إذا لم يصل حدث، نعرض بيانات من الكاش إن وجدت
             const cached = profileCache.get(pubkey);
             if (cached) {
                 renderProfilePage(pubkey, { name: cached.name || '', picture: cached.picture || '', about: cached.about || '' });
@@ -483,15 +482,14 @@ function renderProfilePage(pubkey, meta) {
         websiteEl.classList.add('hidden');
     }
 
-    // تاريخ الانضمام (تقريبي)
     const joinedEl = document.getElementById('profile-page-joined');
     if (joinedEl) joinedEl.textContent = 'تاريخ غير معروف';
 
-    // تخزين في الكاش
     profileCache.set(pubkey, { name, picture, about });
 }
 
 function loadProfilePosts(pubkey, until) {
+    if (!pubkey) return;
     if (profilePostsSubscription) {
         try { profilePostsSubscription.close(); } catch(e) {}
     }
@@ -505,10 +503,13 @@ function loadProfilePosts(pubkey, until) {
     };
     if (until) filters.until = until;
 
+    console.log('[Profile] جلب منشورات لـ', pubkey, filters);
+
     profilePostsSubscription = pool.subscribeMany(RELAYS, [filters], {
         onevent: (event) => {
-            if (event.kind === 5) return; // حذف
+            if (event.kind === 5) return;
             if (bannedPubkeys.has(event.pubkey)) return;
+            console.log('[Profile] وصول منشور:', event.id);
             renderProfilePost(event);
         },
         oneose: () => {
@@ -522,6 +523,7 @@ function loadProfilePosts(pubkey, until) {
                     moreContainer.classList.add('hidden');
                 }
             }
+            console.log('[Profile] انتهى تحميل المنشورات، العدد:', document.querySelectorAll('#profile-posts-container .post-card').length);
         }
     });
 }
@@ -530,50 +532,54 @@ function renderProfilePost(event) {
     const container = document.getElementById('profile-posts-container');
     if (!container) return;
 
-    const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' });
-    const displayName = getDisplayName(event.pubkey);
-    const contentHtml = renderMediaContent(event.content);
-    const div = document.createElement('div');
-    div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
-    div.dataset.postId = event.id;
-    div.dataset.pubkey = event.pubkey;
-    div.dataset.createdAt = event.created_at;
+    try {
+        const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' });
+        const displayName = getDisplayName(event.pubkey);
+        const contentHtml = renderMediaContent(event.content);
+        const div = document.createElement('div');
+        div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
+        div.dataset.postId = event.id;
+        div.dataset.pubkey = event.pubkey;
+        div.dataset.createdAt = event.created_at;
 
-    div.innerHTML = `
-        <div class="flex justify-between items-start mb-4">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${event.pubkey}')">${avatarHtml(event.pubkey, 'w-11 h-11 text-base')}</div>
-                <div class="min-w-0 flex-1">
-                    <div class="author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</div>
-                    <div class="text-xs text-gray-400">${escapeHtml(time)}</div>
+        div.innerHTML = `
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${event.pubkey}')">${avatarHtml(event.pubkey, 'w-11 h-11 text-base')}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</div>
+                        <div class="text-xs text-gray-400">${escapeHtml(time)}</div>
+                    </div>
                 </div>
+                ${event.pubkey === pk ? `
+                <div class="flex gap-1 flex-shrink-0">
+                    <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
+                    <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
+                </div>
+                ` : ''}
             </div>
-            ${event.pubkey === pk ? `
-            <div class="flex gap-1 flex-shrink-0">
-                <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
-                <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
+            <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
+            <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
+                <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${event.id}', '${event.pubkey}')" data-liked="false" data-postid="${event.id}">
+                    <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
+                </button>
+                <button class="reply-button flex items-center gap-1 hover:text-accent transition" onclick="replyToPost('${event.id}', '${event.pubkey}')" title="اكتب تعليقًا">
+                    <i class="far fa-comment"></i> <span>تعليق</span>
+                </button>
+                <button class="reply-toggle-button flex items-center gap-1 hover:text-accent hover:underline transition" onclick="toggleReplies('${event.id}')" title="عرض التعليقات">
+                    <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
+                    <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
+                </button>
             </div>
-            ` : ''}
-        </div>
-        <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
-        <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
-            <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${event.id}', '${event.pubkey}')" data-liked="false" data-postid="${event.id}">
-                <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
-            </button>
-            <button class="reply-button flex items-center gap-1 hover:text-accent transition" onclick="replyToPost('${event.id}', '${event.pubkey}')" title="اكتب تعليقًا">
-                <i class="far fa-comment"></i> <span>تعليق</span>
-            </button>
-            <button class="reply-toggle-button flex items-center gap-1 hover:text-accent hover:underline transition" onclick="toggleReplies('${event.id}')" title="عرض التعليقات">
-                <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
-                <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
-            </button>
-        </div>
-        <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
-    `;
-    container.appendChild(div);
-    fetchProfiles([event.pubkey]);
-    addBanButtonToPost(div, event.pubkey);
-    processPendingReplies(event.id);
+            <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
+        `;
+        container.appendChild(div);
+        fetchProfiles([event.pubkey]);
+        addBanButtonToPost(div, event.pubkey);
+        processPendingReplies(event.id);
+    } catch(err) {
+        console.error('[Profile] خطأ في عرض المنشور:', err);
+    }
 }
 
 function loadMoreProfilePosts() {
