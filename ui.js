@@ -72,18 +72,13 @@ function removeBanner() {
 
 /**
  * تُضاف زر الحظر/إلغاء الحظر إلى منطقة الأزرار (بجانب الإعجاب والتعليق)
- * يتم التحقق من أن المستخدم الحالي هو المدير قبل إضافة الزر.
  */
 function addBanButtonToPost(postElement, postPubkey) {
-    // التأكد من أن المتغيرات العامة معرفة وأن المستخدم هو المدير
     if (typeof ADMIN_PUBKEY === 'undefined' || !pk) return;
-    
-    // لا نضيف الزر إذا لم يكن المستخدم الحالي هو المدير أو كان المنشور لنفسه
     if (pk !== ADMIN_PUBKEY || pk === postPubkey) return;
 
     const actionsContainer = postElement.querySelector('.post-actions');
     if (!actionsContainer) return;
-
     if (actionsContainer.querySelector('.ban-button')) return;
 
     const isBanned = bannedPubkeys.has(postPubkey);
@@ -100,7 +95,7 @@ function addBanButtonToPost(postElement, postPubkey) {
 }
 
 /**
- * تبديل حالة الحظر - بدون إشعارات نجاح، فقط أخطاء أساسية
+ * تبديل حالة الحظر - بدون إشعارات نجاح
  */
 async function toggleBanUser(targetPubkey) {
     if (pk !== ADMIN_PUBKEY) {
