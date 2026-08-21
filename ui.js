@@ -26,8 +26,9 @@ function switchView(viewName) {
     if (viewName === 'settings') {
         const adminBtn = document.getElementById('settings-admin-btn');
         if (adminBtn) {
-            // استخدام ADMIN_PUBKEY_HEX بدلاً من ADMIN_PUBKEY
-            if (pk === window.ADMIN_PUBKEY_HEX) {
+            // استخدام ADMIN_PUBKEY_HEX من window
+            const adminHex = window.ADMIN_PUBKEY_HEX;
+            if (pk && adminHex && pk === adminHex) {
                 adminBtn.classList.remove('hidden');
             } else {
                 adminBtn.classList.add('hidden');
@@ -87,9 +88,9 @@ function removeBanner() {
  * تُضاف زر الحظر/إلغاء الحظر إلى منطقة الأزرار (بجانب الإعجاب والتعليق)
  */
 function addBanButtonToPost(postElement, postPubkey) {
-    // استخدام ADMIN_PUBKEY_HEX بدلاً من ADMIN_PUBKEY
-    if (typeof window.ADMIN_PUBKEY_HEX === 'undefined' || !pk) return;
-    if (pk !== window.ADMIN_PUBKEY_HEX || pk === postPubkey) return;
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex || !pk) return;
+    if (pk !== adminHex || pk === postPubkey) return;
 
     const actionsContainer = postElement.querySelector('.post-actions');
     if (!actionsContainer) return;
@@ -112,7 +113,8 @@ function addBanButtonToPost(postElement, postPubkey) {
  * تبديل حالة الحظر - بدون إشعارات نجاح
  */
 async function toggleBanUser(targetPubkey) {
-    if (pk !== window.ADMIN_PUBKEY_HEX) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (pk !== adminHex) {
         showToast('أنت لست مديراً', 'error');
         return;
     }
@@ -157,7 +159,8 @@ async function toggleBanUser(targetPubkey) {
 let adminPanelOpen = false;
 
 function openAdminPanel() {
-    if (pk !== window.ADMIN_PUBKEY_HEX) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (pk !== adminHex) {
         showToast('أنت لست مديراً', 'error');
         return;
     }
