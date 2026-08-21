@@ -29,40 +29,9 @@ function switchView(viewName) {
 
 function updateSettingsUI() {
     const adminBtn = document.getElementById('settings-admin-btn');
-    const loginPrompt = document.getElementById('settings-login-prompt');
-    
     if (adminBtn) {
         const isAdmin = window.isCurrentUserAdmin ? window.isCurrentUserAdmin() : false;
-        if (isAdmin) {
-            adminBtn.classList.remove('hidden');
-            if (loginPrompt) loginPrompt.classList.add('hidden');
-        } else {
-            adminBtn.classList.add('hidden');
-            if (loginPrompt) {
-                loginPrompt.classList.remove('hidden');
-            } else {
-                const container = adminBtn.parentElement;
-                const prompt = document.createElement('div');
-                prompt.id = 'settings-login-prompt';
-                prompt.className = 'p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 mt-4';
-                prompt.innerHTML = `
-                    <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2 font-bold">
-                        🔑 أنت لست مسجلاً كمدير
-                    </p>
-                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                        لتتمكن من حظر المستخدمين، سجل الدخول باستخدام المفتاح الخاص (nsec) الخاص بحساب المدير.
-                    </p>
-                    <button onclick="importKeyFromHeader()" 
-                            class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition">
-                        <i class="fas fa-key"></i> تسجيل الدخول كمستخدم
-                    </button>
-                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                        الصق المفتاح الخاص (nsec) الخاص بحساب المدير
-                    </p>
-                `;
-                container.appendChild(prompt);
-            }
-        }
+        adminBtn.classList.toggle('hidden', !isAdmin);
     }
 }
 
