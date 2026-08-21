@@ -59,6 +59,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await initIdentity();
 
+    // تحميل الكاش المحلي فوراً قبل أي شيء، عشان المحظورين ميظهروش حتى لثانية واحدة
+    loadBannedCache();
+    applyBanFilter();
+
     // التحقق من هوية المدير بعد تحميل الهوية
     if (isValid) {
         if (isCurrentUserAdmin()) {
@@ -99,6 +103,29 @@ if ('serviceWorker' in navigator) {
 // ============================
 
 let banSubscription = null;
+const BAN_CACHE_KEY = 'pulse_banned_cache';
+
+function loadBannedCache() {
+    try {
+        const raw = localStorage.getItem(BAN_CACHE_KEY);
+        if (!raw) return;
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+            arr.forEach(pubkey => bannedPubkeys.add(pubkey));
+            console.log('[Moderation] تم تحميل قائمة الحظر من الذاكرة المحلية:', bannedPubkeys.size);
+        }
+    } catch (e) {
+        console.warn('[Moderation] فشل تحميل كاش الحظر:', e);
+    }
+}
+
+function saveBannedCache() {
+    try {
+        localStorage.setItem(BAN_CACHE_KEY, JSON.stringify(Array.from(bannedPubkeys)));
+    } catch (e) {
+        console.warn('[Moderation] فشل حفظ كاش الحظر:', e);
+    }
+}
 
 async function loadBanList() {
     return new Promise((resolve) => {
@@ -115,18 +142,23 @@ async function loadBanList() {
                 events.push(event);
             },
             oneose: () => {
-                events.sort((a, b) => a.created_at - b.created_at);
-                bannedPubkeys.clear();
-                for (const ev of events) {
-                    const target = ev.tags.find(t => t[0] === 'p')?.[1];
-                    if (!target) continue;
-                    if (ev.content === 'ban') {
-                        bannedPubkeys.add(target);
-                    } else if (ev.content === 'unban') {
-                        bannedPubkeys.delete(target);
+                if (events.length > 0) {
+                    events.sort((a, b) => a.created_at - b.created_at);
+                    bannedPubkeys.clear();
+                    for (const ev of events) {
+                        const target = ev.tags.find(t => t[0] === 'p')?.[1];
+                        if (!target) continue;
+                        if (ev.content === 'ban') {
+                            bannedPubkeys.add(target);
+                        } else if (ev.content === 'unban') {
+                            bannedPubkeys.delete(target);
+                        }
                     }
+                    console.log('[Moderation] تحميل قائمة الحظر من السيرفرات:', bannedPubkeys.size, 'محظور');
+                    saveBannedCache();
+                } else {
+                    console.log('[Moderation] لا يوجد رد من السيرفرات، الإبقاء على القائمة المحلية:', bannedPubkeys.size, 'محظور');
                 }
-                console.log('[Moderation] تحميل قائمة الحظر:', bannedPubkeys.size, 'محظور');
                 applyBanFilter();
                 resolve();
             },
@@ -144,6 +176,7 @@ async function loadBanList() {
                         }
                     }
                     console.log('[Moderation] تحميل قائمة الحظر (onclose):', bannedPubkeys.size, 'محظور');
+                    saveBannedCache();
                     applyBanFilter();
                 }
                 resolve();
@@ -185,6 +218,7 @@ function processBanEvent(event) {
     } else {
         return;
     }
+    saveBannedCache();
     applyBanFilter();
     if (adminPanelOpen) renderBannedList();
 }
