@@ -24,11 +24,11 @@ const ROOM_PRESENCE_TTL_MS = 90 * 1000;
 const INITIAL_FEED_LIMIT = 300;
 
 // ============================
-// 2. نظام الحظر (إضافة جديدة)
+// 2. نظام الحظر
 // ============================
 
-// المفتاح العام للمدير (admin) بصيغة npub – سنقوم بتحويله إلى hex في main.js
+// المفتاح العام للمدير بصيغة npub (سيتم تحويله تلقائياً في main.js)
 const ADMIN_PUBKEY_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
 
-// نوع الحدث المخصص للحظر (يُستخدم كـ kind)
+// نوع الحدث المخصص للحظر
 const BAN_EVENT_KIND = 20001;
