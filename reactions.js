@@ -60,7 +60,6 @@ function updateLikeUI(postId, liked) {
         const btn = card.querySelector('.like-button');
         if (!btn) return;
         const icon = btn.querySelector('i');
-        // لا نغير النص، فقط الأيقونة
         if (liked) {
             btn.dataset.liked = 'true';
             icon.className = 'fas fa-heart text-red-500';
@@ -85,7 +84,7 @@ function syncLikeCountUI(postId) {
 }
 
 // ============================
-// 14. اشتراك الإعجابات والردود (يشمل kind 5)
+// 14. اشتراك الإعجابات والردود (يشمل kind 5 بدون فلتر)
 // ============================
 
 function startReactionSubscription() {
@@ -104,10 +103,13 @@ function startReactionSubscription() {
     // جلب الإعجابات والإلغاءات السابقة
     fetchPastLikesAndDeletes(postIds);
 
-    // الاشتراك في الأحداث الجديدة: kind 7 (إعجاب), kind 5 (حذف), kind 1 (ردود)
+    // الاشتراك في الأحداث الجديدة:
+    // - kind 7 (إعجاب) بفلتر #e = postIds
+    // - kind 5 (حذف) بدون فلتر #e لاستقبال جميع أحداث الحذف
+    // - kind 1 (ردود) بفلتر #e = postIds
     reactionsSubscription = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': postIds },
-        { kinds: [5], '#e': postIds },   // مهم لاستقبال الإلغاءات
+        { kinds: [5] },   // ✅ بدون فلتر لاستقبال الإلغاءات
         { kinds: [1], '#e': postIds }
     ], {
         onevent: (event) => {
@@ -142,7 +144,7 @@ function fetchPastLikesAndDeletes(postIds) {
         const batch = postIds.slice(i, i + batchSize);
         const sub = pool.subscribeMany(RELAYS, [
             { kinds: [7], '#e': batch, limit: 500 },
-            { kinds: [5], '#e': batch, limit: 500 }
+            { kinds: [5], limit: 500 }   // ✅ بدون فلتر #e
         ], {
             onevent: (event) => {
                 if (event.kind === 7) {
@@ -170,7 +172,7 @@ function handleDeleteEvent(event) {
     // نبحث في likeEventIndex عن هذا الـ targetId (وهو likeEventId)
     const info = likeEventIndex.get(targetId);
     if (!info) {
-        // قد يكون حدث حذف لمنشور، نتجاوزه
+        // قد يكون حدث حذف لمنشور عادي، نتجاوزه
         return;
     }
 
@@ -185,6 +187,7 @@ function handleDeleteEvent(event) {
         syncLikeCountUI(info.postId);
         updatePostScore(info.postId);
     }
+    console.log('[Reactions] ✅ إلغاء إعجاب:', info.postId, 'بواسطة', info.pubkey);
 }
 
 // ============================
@@ -208,7 +211,7 @@ function handleLikeEvent(event) {
     }
     const likers = postLikers.get(targetId);
 
-    // إذا كان هناك إعجاب سابق لنفس المستخدم، نتجاهل أو نستبدل
+    // إذا كان هناك إعجاب سابق لنفس المستخدم، نستبدل
     if (likers.has(pubkey)) {
         const oldLikeId = likers.get(pubkey);
         if (oldLikeId !== likeEventId) {
@@ -233,6 +236,7 @@ function handleLikeEvent(event) {
     }
     syncLikeCountUI(targetId);
     updatePostScore(targetId);
+    console.log('[Reactions] ✅ إعجاب جديد:', targetId, 'بواسطة', pubkey);
 }
 
 // ============================
@@ -243,7 +247,7 @@ function fetchLikesForNewPost(postId) {
     if (!postId) return;
     const sub = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': [postId], limit: 100 },
-        { kinds: [5], '#e': [postId], limit: 100 }
+        { kinds: [5], limit: 100 }   // ✅ بدون فلتر #e
     ], {
         onevent: (event) => {
             if (event.kind === 7) {
@@ -424,3 +428,34 @@ function renderReply(event, container) {
         processPendingReplies(event.id);
     }
 }
+
+function toggleReplies(postId) {
+    const container = document.querySelector(`.replies-container[data-replies="${CSS.escape(postId)}"]`);
+    if (!container) return;
+    const isHidden = container.classList.contains('hidden');
+    container.classList.toggle('hidden');
+    const icon = document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"] .reply-toggle-icon`);
+    if (icon) {
+        icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+}
+
+// ============================
+// ربط الدوال عالمياً (لضمان التوفر)
+// ============================
+
+window.likePost = likePost;
+window.updateLikeUI = updateLikeUI;
+window.syncLikeCountUI = syncLikeCountUI;
+window.startReactionSubscription = startReactionSubscription;
+window.fetchPastLikesAndDeletes = fetchPastLikesAndDeletes;
+window.fetchLikesForNewPost = fetchLikesForNewPost;
+window.handleLikeEvent = handleLikeEvent;
+window.handleDeleteEvent = handleDeleteEvent;
+window.processPendingReplies = processPendingReplies;
+window.processAllPendingReplies = processAllPendingReplies;
+window.replyToPost = replyToPost;
+window.replyToComment = replyToComment;
+window.confirmReply = confirmReply;
+window.closeReplyModal = closeReplyModal;
+window.toggleReplies = toggleReplies;
