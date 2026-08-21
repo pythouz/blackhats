@@ -4,7 +4,7 @@
    ========================================================= */
 
 // ============================
-// 13. نظام الإعجابات (معدل)
+// 13. نظام الإعجابات
 // ============================
 
 async function likePost(postId, postPubkey) {
@@ -17,7 +17,6 @@ async function likePost(postId, postPubkey) {
 
     try {
         if (existingLikeId) {
-            // ✅ إلغاء الإعجاب: نرسل kind 5 (حدث حذف) يستهدف likeEventId
             const deleteEvent = await signEvent({
                 kind: 5,
                 created_at: Math.floor(Date.now() / 1000),
@@ -26,7 +25,6 @@ async function likePost(postId, postPubkey) {
             });
             await pool.publish(RELAYS, deleteEvent);
 
-            // تحديث الحالة محلياً فوراً
             likers.delete(pk);
             likeEventIndex.delete(existingLikeId);
             stat.myLikeEventId = null;
@@ -35,7 +33,6 @@ async function likePost(postId, postPubkey) {
             updateLikeUI(postId, false);
             showToast('تم إلغاء الإعجاب', 'success');
         } else {
-            // ✅ إعجاب جديد: نرسل kind 7
             const likeEvent = await signEvent({
                 kind: 7,
                 created_at: Math.floor(Date.now() / 1000),
@@ -76,6 +73,7 @@ function updateLikeUI(postId, liked) {
 function syncLikeCountUI(postId) {
     const likers = postLikers.get(postId);
     const count = likers ? likers.size : 0;
+
     const cards = document.querySelectorAll(`.post-card[data-post-id="${CSS.escape(postId)}"]`);
     cards.forEach(card => {
         const countEl = card.querySelector('.like-count');
@@ -84,35 +82,52 @@ function syncLikeCountUI(postId) {
             countEl.dataset.count = count;
         }
     });
+
+    document.querySelectorAll(`.reply-item[data-post-id="${CSS.escape(postId)}"]`).forEach(reply => {
+        const countEl = reply.querySelector('.like-count');
+        if (countEl) {
+            countEl.textContent = count;
+            countEl.dataset.count = count;
+        }
+    });
 }
 
 // ============================
-// 14. اشتراك الإعجابات والردود (يشمل kind 5)
+// 14. اشتراك الإعجابات والردود (معدل)
 // ============================
 
+let reactionSubscribeTimeout = null;
+let isReactionSubscribing = false;
+let pastLikesFetched = false;
+
 function startReactionSubscription() {
-    if (reactionsSubscription) {
-        try { reactionsSubscription.close(); } catch(e) {}
+    if (isReactionSubscribing) return;
+    if (reactionSubscribeTimeout) {
+        clearTimeout(reactionSubscribeTimeout);
+        reactionSubscribeTimeout = null;
     }
 
     const postIds = Array.from(postStats.keys());
     if (!postIds.length) {
-        setTimeout(startReactionSubscription, 3000);
+        reactionSubscribeTimeout = setTimeout(startReactionSubscription, 5000);
         return;
     }
 
     console.log('[Reactions] بدء اشتراك الإعجابات والإلغاءات لـ', postIds.length, 'بوست');
+    isReactionSubscribing = true;
 
-    // جلب الإعجابات والإلغاءات السابقة
-    fetchPastLikesAndDeletes(postIds);
+    if (!pastLikesFetched) {
+        fetchPastLikesAndDeletes(postIds);
+        pastLikesFetched = true;
+    }
 
-    // الاشتراك في الأحداث الجديدة:
-    // - kind 7 (إعجاب) بفلتر #e = postIds
-    // - kind 5 (حذف) بدون فلتر لاستقبال جميع أحداث الحذف
-    // - kind 1 (ردود) بفلتر #e = postIds
+    if (reactionsSubscription) {
+        try { reactionsSubscription.close(); } catch(e) {}
+    }
+
     reactionsSubscription = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': postIds },
-        { kinds: [5] },   // ✅ بدون فلتر #e
+        { kinds: [5] },
         { kinds: [1], '#e': postIds }
     ], {
         onevent: (event) => {
@@ -128,16 +143,20 @@ function startReactionSubscription() {
             }
         },
         oneose: () => {
-            setTimeout(startReactionSubscription, 15000);
+            isReactionSubscribing = false;
+            if (reactionSubscribeTimeout) clearTimeout(reactionSubscribeTimeout);
+            reactionSubscribeTimeout = setTimeout(startReactionSubscription, 30000);
         },
         onclose: () => {
-            setTimeout(startReactionSubscription, 5000);
+            isReactionSubscribing = false;
+            if (reactionSubscribeTimeout) clearTimeout(reactionSubscribeTimeout);
+            reactionSubscribeTimeout = setTimeout(startReactionSubscription, 30000);
         }
     });
 }
 
 // ============================
-// 15. جلب الإعجابات والإلغاءات السابقة
+// 15. جلب الإعجابات والإلغاءات السابقة (مرة واحدة)
 // ============================
 
 function fetchPastLikesAndDeletes(postIds) {
@@ -147,7 +166,7 @@ function fetchPastLikesAndDeletes(postIds) {
         const batch = postIds.slice(i, i + batchSize);
         const sub = pool.subscribeMany(RELAYS, [
             { kinds: [7], '#e': batch, limit: 500 },
-            { kinds: [5], limit: 500 }   // ✅ بدون فلتر #e
+            { kinds: [5], limit: 500 }
         ], {
             onevent: (event) => {
                 if (event.kind === 7) {
@@ -165,32 +184,32 @@ function fetchPastLikesAndDeletes(postIds) {
 }
 
 // ============================
-// 16. معالجة حدث الحذف (kind 5) الخاص بالإعجابات
+// 16. معالجة حدث الحذف (kind 5)
 // ============================
 
 function handleDeleteEvent(event) {
     const targetId = getTagValue(event.tags, 'e');
     if (!targetId) return;
 
-    // نبحث في likeEventIndex عن هذا الـ targetId (وهو likeEventId)
     const info = likeEventIndex.get(targetId);
     if (!info) {
-        // قد يكون حدث حذف لمنشور عادي، نتجاوزه
         return;
     }
 
-    // حذف الإعجاب
     likeEventIndex.delete(targetId);
-    const likers = postLikers.get(info.postId);
+    const postId = info.postId;
+    const likers = postLikers.get(postId);
     if (likers) {
-        likers.delete(info.pubkey);
-        if (info.pubkey === pk) {
-            updateLikeUI(info.postId, false);
+        const deleted = likers.delete(info.pubkey);
+        if (deleted) {
+            syncLikeCountUI(postId);
+            updatePostScore(postId);
+            if (info.pubkey === pk) {
+                updateLikeUI(postId, false);
+            }
+            console.log('[Reactions] ✅ إلغاء إعجاب:', postId, 'بواسطة', info.pubkey);
         }
-        syncLikeCountUI(info.postId);
-        updatePostScore(info.postId);
     }
-    console.log('[Reactions] ✅ إلغاء إعجاب:', info.postId, 'بواسطة', info.pubkey);
 }
 
 // ============================
@@ -214,7 +233,6 @@ function handleLikeEvent(event) {
     }
     const likers = postLikers.get(targetId);
 
-    // إذا كان هناك إعجاب سابق لنفس المستخدم، نستبدل
     if (likers.has(pubkey)) {
         const oldLikeId = likers.get(pubkey);
         if (oldLikeId !== likeEventId) {
@@ -230,7 +248,6 @@ function handleLikeEvent(event) {
         return;
     }
 
-    // إعجاب جديد
     likers.set(pubkey, likeEventId);
     likeEventIndex.set(likeEventId, { postId: targetId, pubkey });
 
@@ -250,7 +267,7 @@ function fetchLikesForNewPost(postId) {
     if (!postId) return;
     const sub = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': [postId], limit: 100 },
-        { kinds: [5], limit: 100 }   // ✅ بدون فلتر #e
+        { kinds: [5], limit: 100 }
     ], {
         onevent: (event) => {
             if (event.kind === 7) {
