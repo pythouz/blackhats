@@ -262,7 +262,7 @@ function searchUser() {
         try {
             const decoded = NostrTools.nip19.decode(query);
             if (decoded.type === 'npub') {
-                pubkey = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
+                pubkey = decoded.data; // nostr-tools 2.x يرجّع hex string جاهز مباشرة
             }
         } catch (e) {
             showToast('npub غير صالح', 'error');
