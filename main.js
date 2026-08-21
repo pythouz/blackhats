@@ -69,13 +69,40 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('[Admin] ✅ المستخدم الحالي هو المدير');
         } else {
             console.log('[Admin] ⚠️ المستخدم الحالي ليس المدير.');
-            console.log('[Admin] 💡 لتتمكن من الحظر، سجل الدخول بمفتاح المدير الخاص.');
-            console.log('[Admin] 🔑 اضغط على زر المفتاح 🔑 في الهيدر أو استخدم "استيراد مفتاح" في الإعدادات.');
         }
     }
 
+    // بوابة الدخول: يقف هنا لو المستخدم لسه مش موافَق عليه من الإدارة
+    // (لو إعدادات المدير غلط، منسيبش الموقع مقفول على الكل، نسمح بالدخول عادي)
+    const accessGranted = isValid ? await initAccessControl() : true;
+
     await loadBanList();
     subscribeToBanEvents();
+
+    if (isValid) {
+        loadApprovalList().then(() => {
+            if (!accessGranted && myAccessStatus !== 'approved' && approvedPubkeys.has(pk)) {
+                myAccessStatus = 'approved';
+                unlockApp();
+            }
+        });
+        subscribeToApprovalEvents();
+
+        if (isCurrentUserAdmin()) {
+            loadPendingRegistrationsForAdmin();
+            subscribeToRegistrationEvents();
+        }
+    }
+
+    if (accessGranted) {
+        unlockApp();
+    }
+});
+
+function unlockApp() {
+    if (window.appUnlocked) return; // منع التشغيل مرتين
+    window.appUnlocked = true;
+    hideAccessGate();
 
     loadMyProfile();
     startFeed();
@@ -88,7 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         switchView('rooms');
         setTimeout(restoreRoomAfterRefresh, 1200);
     }
-});
+}
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -284,3 +311,10 @@ window.addBanButtonToPost = addBanButtonToPost;
 window.processBanEvent = processBanEvent;
 window.applyBanFilter = applyBanFilter;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
+
+// دوال نظام التسجيل بموافقة الإدارة
+window.switchAdminTab = switchAdminTab;
+window.submitRegistration = submitRegistration;
+window.approveUser = approveUser;
+window.revokeUser = revokeUser;
+window.dismissRegistration = dismissRegistration;
