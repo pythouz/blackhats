@@ -26,7 +26,6 @@ function switchView(viewName) {
     if (viewName === 'settings') {
         const adminBtn = document.getElementById('settings-admin-btn');
         if (adminBtn) {
-            // استخدام ADMIN_PUBKEY_HEX من window
             const adminHex = window.ADMIN_PUBKEY_HEX;
             if (pk && adminHex && pk === adminHex) {
                 adminBtn.classList.remove('hidden');
