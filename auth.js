@@ -67,6 +67,28 @@ async function signEvent(eventTemplate) {
     return NostrTools.finalizeEvent(eventTemplate, secretKeyHex);
 }
 
+// ============================
+// تشفير/فك تشفير بيانات التسجيل (عشان الإيميل والرقم يفضلوا سريين)
+// ============================
+
+async function encryptToAdmin(plaintext) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex) throw new Error('مفتاح المدير غير متاح');
+    if (usingNip07 && window.nostr?.nip04?.encrypt) {
+        return await window.nostr.nip04.encrypt(adminHex, plaintext);
+    }
+    if (!secretKeyHex) throw new Error('لا يوجد مفتاح للتشفير');
+    return await NostrTools.nip04.encrypt(secretKeyHex, adminHex, plaintext);
+}
+
+async function decryptFromUser(ciphertext, userPubkey) {
+    if (usingNip07 && window.nostr?.nip04?.decrypt) {
+        return await window.nostr.nip04.decrypt(userPubkey, ciphertext);
+    }
+    if (!secretKeyHex) throw new Error('لا يوجد مفتاح لفك التشفير');
+    return await NostrTools.nip04.decrypt(secretKeyHex, userPubkey, ciphertext);
+}
+
 function exportKey() {
     if (usingNip07) { showToast('صدّر المفتاح من الامتداد نفسه', 'info'); return; }
     if (!secretKeyHex) { showToast('لا يوجد مفتاح للتصدير', 'error'); return; }
