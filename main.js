@@ -4,39 +4,63 @@
    ========================================================= */
 
 // ============================
-// تحويل npub إلى hex وتخزينه
+// تحويل npub إلى hex
 // ============================
 
 let ADMIN_PUBKEY_HEX = null;
 
 function convertAdminPubkey() {
-    try {
-        if (ADMIN_PUBKEY_NPUB && ADMIN_PUBKEY_NPUB.startsWith('npub1')) {
+    // 1. إذا كان هناك override في config.js، استخدمه
+    if (typeof ADMIN_PUBKEY_HEX_OVERRIDE !== 'undefined' && ADMIN_PUBKEY_HEX_OVERRIDE && ADMIN_PUBKEY_HEX_OVERRIDE.length === 64) {
+        ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_HEX_OVERRIDE;
+        console.log('[Admin] استخدام ADMIN_PUBKEY_HEX_OVERRIDE:', ADMIN_PUBKEY_HEX);
+        return;
+    }
+
+    // 2. تحويل npub إلى hex
+    if (ADMIN_PUBKEY_NPUB && ADMIN_PUBKEY_NPUB.startsWith('npub1')) {
+        try {
+            // محاولة فك التشفير باستخدام nip19
             const decoded = NostrTools.nip19.decode(ADMIN_PUBKEY_NPUB);
             if (decoded.type === 'npub') {
-                // تحويل Uint8Array إلى hex (32 بايت = 64 حرف)
+                // تحويل Uint8Array إلى hex (32 بايت)
                 ADMIN_PUBKEY_HEX = Array.from(decoded.data)
                     .map(b => b.toString(16).padStart(2, '0'))
                     .join('');
-                console.log('[Admin] تم تحويل npub إلى hex:', ADMIN_PUBKEY_HEX);
-                console.log('[Admin] طول hex:', ADMIN_PUBKEY_HEX.length, 'حرف (متوقع 64)');
-                
-                // التحقق من صحة الطول
-                if (ADMIN_PUBKEY_HEX.length !== 64) {
-                    console.warn('[Admin] تحذير: hex الناتج ليس 64 حرفاً. قد يكون npub غير صحيح.');
-                    showToast('⚠️ تحذير: المفتاح العام غير صحيح، تحقق من npub', 'error');
+
+                // تحقق من الطول
+                if (ADMIN_PUBKEY_HEX.length === 64) {
+                    console.log('[Admin] تم تحويل npub إلى hex بنجاح:', ADMIN_PUBKEY_HEX);
+                    return;
+                } else {
+                    console.error('[Admin] تحذير: hex الناتج طوله', ADMIN_PUBKEY_HEX.length, 'وليس 64. قد يكون npub غير صحيح.');
+                    // لا نعيّن القيمة، سنعرض خطأ لاحقاً
+                    ADMIN_PUBKEY_HEX = null;
                 }
-                return;
+            }
+        } catch (e) {
+            console.error('[Admin] فشل تحويل npub باستخدام nip19.decode:', e);
+            // محاولة بديلة: استخدام npubDecode إذا كانت موجودة
+            if (typeof NostrTools.nip19.npubDecode === 'function') {
+                try {
+                    const bytes = NostrTools.nip19.npubDecode(ADMIN_PUBKEY_NPUB);
+                    ADMIN_PUBKEY_HEX = Array.from(bytes)
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('');
+                    if (ADMIN_PUBKEY_HEX.length === 64) {
+                        console.log('[Admin] تم تحويل npub إلى hex باستخدام npubDecode:', ADMIN_PUBKEY_HEX);
+                        return;
+                    }
+                } catch (e2) {
+                    console.error('[Admin] فشل npubDecode:', e2);
+                }
             }
         }
-        // إذا كان بالفعل hex أو فشل التحويل
-        ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_NPUB;
-        console.warn('[Admin] استخدام ADMIN_PUBKEY_NPUB كـ hex مباشرة (قد يكون غير صحيح)');
-    } catch (e) {
-        console.error('[Admin] فشل تحويل npub:', e);
-        ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_NPUB;
-        showToast('⚠️ خطأ في تحويل المفتاح العام', 'error');
     }
+
+    // 3. إذا لم ينجح التحويل، نترك ADMIN_PUBKEY_HEX = null
+    ADMIN_PUBKEY_HEX = null;
+    console.error('[Admin] تعذر تحويل ADMIN_PUBKEY_NPUB إلى hex صحيح. تأكد من أن npub صحيح، أو استخدم ADMIN_PUBKEY_HEX_OVERRIDE في config.js');
 }
 
 // ============================
@@ -49,10 +73,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // تحويل مفتاح المدير أولاً
     convertAdminPubkey();
 
-    // إذا لم يتم تعيين ADMIN_PUBKEY_HEX بشكل صحيح، نعرض خطأ
+    // التحقق من صحة ADMIN_PUBKEY_HEX
     if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
-        console.error('[Admin] ADMIN_PUBKEY_HEX غير صحيح. تحقق من npub في config.js');
-        showToast('⚠️ خطأ في إعدادات المدير، تحقق من npub', 'error');
+        console.error('[Admin] ADMIN_PUBKEY_HEX غير صحيح. تحقق من npub في config.js أو استخدم ADMIN_PUBKEY_HEX_OVERRIDE');
+        showToast('⚠️ خطأ في إعدادات المدير: تحقق من npub أو استخدم hex مباشرة', 'error');
+        // يمكننا الاستمرار لكن نظام الحظر لن يعمل
+    } else {
+        console.log('[Admin] تم تعيين ADMIN_PUBKEY_HEX بنجاح');
     }
 
     // إعداد الثيم
