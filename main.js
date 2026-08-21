@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await initIdentity();
+
+    // ---- تحميل قائمة الحظر قبل أي شيء آخر ----
     await loadBanList();
     subscribeToBanEvents();
 
@@ -55,6 +57,7 @@ async function loadBanList() {
                 events.push(event);
             },
             oneose: () => {
+                // ترتيب الأحداث تصاعدياً حسب الوقت
                 events.sort((a, b) => a.created_at - b.created_at);
                 bannedPubkeys.clear();
                 for (const ev of events) {
@@ -71,6 +74,7 @@ async function loadBanList() {
                 resolve();
             },
             onclose: () => {
+                // في حالة الإغلاق دون oneose، ننفذ نفس المنطق
                 if (events.length > 0) {
                     events.sort((a, b) => a.created_at - b.created_at);
                     bannedPubkeys.clear();
@@ -89,6 +93,7 @@ async function loadBanList() {
                 resolve();
             }
         });
+        // تعيين مهلة احتياطية في حال لم يتم استدعاء oneose/onclose
         setTimeout(() => {
             try { sub.close(); } catch(e) {}
             resolve();
@@ -97,7 +102,7 @@ async function loadBanList() {
 }
 
 /**
- * الاشتراك في أحداث الحظر الجديدة (تحديث فوري)
+ * الاشتراك في أحداث الحظر الجديدة (تحديث فوري) باستخدام pool.subscribeMany
  */
 function subscribeToBanEvents() {
     if (banSubscription) {
@@ -108,13 +113,14 @@ function subscribeToBanEvents() {
             processBanEvent(event);
         },
         oneose: () => {
+            // قد ينتهي الاشتراك، نعيد فتحه بعد فترة
             setTimeout(subscribeToBanEvents, 5000);
         }
     });
 }
 
 /**
- * معالجة حدث حظر وارد (بدون إشعارات)
+ * معالجة حدث حظر وارد (تحديث bannedPubkeys والواجهة) - بدون إشعارات
  */
 function processBanEvent(event) {
     const target = event.tags.find(t => t[0] === 'p')?.[1];
@@ -126,7 +132,9 @@ function processBanEvent(event) {
     } else {
         return;
     }
+    // تحديث الفلتر على الفيد الحالي
     applyBanFilter();
+    // تحديث لوحة التحكم إذا كانت مفتوحة
     if (adminPanelOpen) renderBannedList();
 }
 
@@ -140,10 +148,11 @@ function applyBanFilter() {
         const isBanned = bannedPubkeys.has(pubkey);
         element.style.display = isBanned ? 'none' : '';
     }
+    // يمكن أيضاً إخفاء الردود إذا أردت، لكننا نكتفي بالمنشورات الرئيسية حالياً
 }
 
 // ============================
-// ربط الدوال للنطاق العام
+// ربط الدوال للنطاق العام (بما فيها دوال الحظر)
 // ============================
 
 window.publishPost = publishPost;
@@ -160,7 +169,9 @@ window.toggleTheme = toggleTheme;
 window.toggleSettings = toggleSettings;
 window.exportKey = exportKey;
 window.importKey = importKey;
+window.importKeyFromHeader = importKeyFromHeader;
 window.copyNpub = copyNpub;
+window.searchUser = searchUser;
 window.openProfileModal = openProfileModal;
 window.closeProfileModal = closeProfileModal;
 window.saveProfile = saveProfile;
@@ -183,6 +194,7 @@ window.handleEditFileSelect = handleEditFileSelect;
 window.removeEditAttachment = removeEditAttachment;
 window.loadMorePosts = loadMorePosts;
 
+// ربط دوال الحظر
 window.toggleBanUser = toggleBanUser;
 window.openAdminPanel = openAdminPanel;
 window.closeAdminPanel = closeAdminPanel;
