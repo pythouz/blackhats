@@ -1,6 +1,6 @@
 /* =========================================================
    Pulse — ui.js
-   التنقل بين الصفحات، المظهر، ودوال واجهة إضافية
+   التنقل بين الصفحات، المظهر، الإعدادات، البحث، والحظر
    ========================================================= */
 
 // ============================
@@ -21,6 +21,18 @@ function switchView(viewName) {
         active.classList.remove('text-gray-400');
     }
     localStorage.setItem('pulse_view', viewName);
+
+    // إذا تم فتح الإعدادات، نتحقق من ظهور زر الإدارة
+    if (viewName === 'settings') {
+        const adminBtn = document.getElementById('settings-admin-btn');
+        if (adminBtn) {
+            if (pk === ADMIN_PUBKEY) {
+                adminBtn.classList.remove('hidden');
+            } else {
+                adminBtn.classList.add('hidden');
+            }
+        }
+    }
 }
 
 function toggleTheme() {
@@ -34,7 +46,7 @@ function toggleSettings() {
 }
 
 // ============================
-// 19. دوال الصور المفقودة
+// 19. دوال الصور المفقودة (البروفايل)
 // ============================
 
 function onAvatarSelected(event) {
@@ -202,4 +214,87 @@ function renderBannedList() {
             </button>
         </div>
     `).join('');
+}
+
+// ============================
+// 21. البحث عن مستخدم
+// ============================
+
+function searchUser() {
+    const input = document.getElementById('search-input');
+    if (!input) return;
+    const query = input.value.trim();
+    if (!query) {
+        showToast('أدخل مفتاحاً عاماً للبحث', 'info');
+        return;
+    }
+
+    let pubkey = query;
+    // إذا كان npub، نحوله إلى hex
+    if (query.startsWith('npub1')) {
+        try {
+            const decoded = NostrTools.nip19.decode(query);
+            if (decoded.type === 'npub') {
+                pubkey = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+        } catch (e) {
+            showToast('npub غير صالح', 'error');
+            return;
+        }
+    } else if (!/^[0-9a-fA-F]{64}$/.test(query)) {
+        showToast('يجب إدخال npub أو مفتاح hex صالح (64 حرف)', 'error');
+        return;
+    }
+
+    // جلب البروفايل وعرضه في نافذة منبثقة
+    fetchProfiles([pubkey]);
+    const name = getDisplayName(pubkey);
+    const npubFormatted = NostrTools.nip19.npubEncode(pubkey);
+
+    // إنشاء نافذة منبثقة (popup) لعرض النتيجة
+    const existing = document.getElementById('search-result-popup');
+    if (existing) existing.remove();
+
+    const popup = document.createElement('div');
+    popup.id = 'search-result-popup';
+    popup.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4';
+    popup.innerHTML = `
+        <div class="bg-white dark:bg-surface rounded-3xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg dark:text-white">نتيجة البحث</h3>
+                <button onclick="this.closest('#search-result-popup').remove()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="avatar-slot">${avatarHtml(pubkey, 'w-14 h-14 text-lg')}</div>
+                <div>
+                    <p class="font-bold dark:text-white">${escapeHtml(name)}</p>
+                    <p class="text-xs text-gray-400 font-mono break-all">${npubFormatted}</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="navigator.clipboard.writeText('${npubFormatted}')" 
+                        class="flex-1 bg-gray-100 dark:bg-gray-800 py-2 rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                    <i class="fas fa-copy"></i> نسخ npub
+                </button>
+                <button onclick="navigator.clipboard.writeText('${pubkey}')" 
+                        class="flex-1 bg-gray-100 dark:bg-gray-800 py-2 rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                    <i class="fas fa-hashtag"></i> نسخ hex
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+    popup.addEventListener('click', (e) => {
+        if (e.target === popup) popup.remove();
+    });
+}
+
+// ============================
+// 22. استيراد المفتاح من الهيدر
+// ============================
+
+function importKeyFromHeader() {
+    importKey(); // نفس دالة الاستيراد الموجودة في auth.js
 }
