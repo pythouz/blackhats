@@ -1,29 +1,41 @@
 /* =========================================================
    Pulse — main.js
-   نقطة تشغيل التطبيق (Boot): تُستدعى بعد تحميل كل الملفات فوق
+   نقطة تشغيل التطبيق (Boot)
    ========================================================= */
 
 // ============================
-// تحويل npub إلى hex وتخزينه في متغير عام
+// تحويل npub إلى hex وتخزينه
 // ============================
 
 let ADMIN_PUBKEY_HEX = null;
 
 function convertAdminPubkey() {
     try {
-        if (ADMIN_PUBKEY_NPUB.startsWith('npub1')) {
+        if (ADMIN_PUBKEY_NPUB && ADMIN_PUBKEY_NPUB.startsWith('npub1')) {
             const decoded = NostrTools.nip19.decode(ADMIN_PUBKEY_NPUB);
             if (decoded.type === 'npub') {
-                ADMIN_PUBKEY_HEX = Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
+                // تحويل Uint8Array إلى hex (32 بايت = 64 حرف)
+                ADMIN_PUBKEY_HEX = Array.from(decoded.data)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
                 console.log('[Admin] تم تحويل npub إلى hex:', ADMIN_PUBKEY_HEX);
+                console.log('[Admin] طول hex:', ADMIN_PUBKEY_HEX.length, 'حرف (متوقع 64)');
+                
+                // التحقق من صحة الطول
+                if (ADMIN_PUBKEY_HEX.length !== 64) {
+                    console.warn('[Admin] تحذير: hex الناتج ليس 64 حرفاً. قد يكون npub غير صحيح.');
+                    showToast('⚠️ تحذير: المفتاح العام غير صحيح، تحقق من npub', 'error');
+                }
                 return;
             }
         }
-        // إذا كان بالفعل hex أو فشل التحويل، نستخدمه كما هو
+        // إذا كان بالفعل hex أو فشل التحويل
         ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_NPUB;
+        console.warn('[Admin] استخدام ADMIN_PUBKEY_NPUB كـ hex مباشرة (قد يكون غير صحيح)');
     } catch (e) {
-        console.warn('[Admin] فشل تحويل npub، سيتم استخدام القيمة كـ hex:', e);
+        console.error('[Admin] فشل تحويل npub:', e);
         ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_NPUB;
+        showToast('⚠️ خطأ في تحويل المفتاح العام', 'error');
     }
 }
 
@@ -37,6 +49,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // تحويل مفتاح المدير أولاً
     convertAdminPubkey();
 
+    // إذا لم يتم تعيين ADMIN_PUBKEY_HEX بشكل صحيح، نعرض خطأ
+    if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
+        console.error('[Admin] ADMIN_PUBKEY_HEX غير صحيح. تحقق من npub في config.js');
+        showToast('⚠️ خطأ في إعدادات المدير، تحقق من npub', 'error');
+    }
+
+    // إعداد الثيم
     if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark');
     }
@@ -74,6 +93,13 @@ let banSubscription = null;
 
 async function loadBanList() {
     return new Promise((resolve) => {
+        // إذا لم يكن ADMIN_PUBKEY_HEX صحيحاً، لا نحاول التحميل
+        if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
+            console.warn('[Moderation] ADMIN_PUBKEY_HEX غير صحيح، تخطي تحميل قائمة الحظر');
+            resolve();
+            return;
+        }
+
         const events = [];
         const sub = pool.subscribeMany(RELAYS, [{ kinds: [BAN_EVENT_KIND], authors: [ADMIN_PUBKEY_HEX] }], {
             onevent: (event) => {
@@ -122,6 +148,10 @@ async function loadBanList() {
 }
 
 function subscribeToBanEvents() {
+    if (!ADMIN_PUBKEY_HEX || ADMIN_PUBKEY_HEX.length !== 64) {
+        console.warn('[Moderation] ADMIN_PUBKEY_HEX غير صحيح، تخطي الاشتراك في أحداث الحظر');
+        return;
+    }
     if (banSubscription) {
         try { banSubscription.close(); } catch(e) {}
     }
@@ -200,7 +230,7 @@ window.handleEditFileSelect = handleEditFileSelect;
 window.removeEditAttachment = removeEditAttachment;
 window.loadMorePosts = loadMorePosts;
 
-// ربط دوال الحظر (مع تمرير ADMIN_PUBKEY_HEX)
+// دوال الحظر
 window.toggleBanUser = toggleBanUser;
 window.openAdminPanel = openAdminPanel;
 window.closeAdminPanel = closeAdminPanel;
@@ -209,5 +239,5 @@ window.addBanButtonToPost = addBanButtonToPost;
 window.processBanEvent = processBanEvent;
 window.applyBanFilter = applyBanFilter;
 
-// جعل ADMIN_PUBKEY_HEX متاحاً عالمياً للاستخدام في ui.js و posts.js
+// جعل ADMIN_PUBKEY_HEX متاحاً عالمياً
 window.ADMIN_PUBKEY_HEX = ADMIN_PUBKEY_HEX;
