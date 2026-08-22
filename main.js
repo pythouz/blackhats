@@ -31,6 +31,12 @@ function isCurrentUserAdmin() {
     return pk && window.ADMIN_PUBKEY_HEX && pk === window.ADMIN_PUBKEY_HEX;
 }
 
+// دالة إخفاء بوابة الوصول القديمة (تأكيد التوافر)
+function hideAccessGate() {
+    const gate = document.getElementById('access-gate');
+    if (gate) gate.remove();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Pulse] بدء التشغيل');
 
@@ -59,7 +65,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // إذا لم يتم تسجيل الدخول بعد (لا يوجد مفتاح)، initIdentity ستعرض بوابة الدخول
     if (!pk) {
-        // نحن في حالة انتظار تسجيل الدخول/التسجيل
         return;
     }
 
@@ -86,7 +91,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (accessGranted) {
         unlockApp();
     } else {
-        // غير مصرح له، عرض حالة الانتظار
         showPendingApproval();
     }
 });
@@ -120,7 +124,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================
-// دوال الحظر (كما هي)
+// دوال الحظر
 // ============================
 
 let banSubscription = null;
@@ -306,8 +310,7 @@ window.applyBanFilter = applyBanFilter;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 
 window.switchAdminTab = switchAdminTab;
-// ✅ التعديل: نربط submitRegistration بـ registerUser بدلاً من دالة غير موجودة
-window.submitRegistration = registerUser;
+window.submitRegistration = registerUser; // ✅ التصحيح
 window.approveUser = approveUser;
 window.revokeUser = revokeUser;
 window.dismissRegistration = dismissRegistration;
@@ -316,7 +319,7 @@ window.openProfilePage = openProfilePage;
 window.closeProfilePage = closeProfilePage;
 window.loadMoreProfilePosts = loadMoreProfilePosts;
 
-// (إضافة) ربط دوال بوابة الدخول
+// ربط دوال بوابة الدخول
 window.showAuthGate = showAuthGate;
 window.hideAuthGate = hideAuthGate;
 window.switchAuthTab = switchAuthTab;
@@ -324,3 +327,4 @@ window.loginWithNip07 = loginWithNip07;
 window.registerUser = registerUser;
 window.showPendingApproval = showPendingApproval;
 window.hidePendingApproval = hidePendingApproval;
+window.hideAccessGate = hideAccessGate; // ✅ إضافة الربط
