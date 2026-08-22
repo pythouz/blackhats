@@ -361,22 +361,20 @@ function fetchProfiles(pubkeys) {
 }
 
 // ==============================================================
-//  دوال صفحة الملف الشخصي (Profile Page)  (جديد)
+//  دوال صفحة الملف الشخصي (Profile Page)
 // ==============================================================
 
 let currentProfilePubkey = null;
 let profilePostsSubscription = null;
-let profilePostsLimit = 30;  // زيادة للاختبار
+let profilePostsLimit = 30;
 let profileOldestTimestamp = null;
 
 function openProfilePage(pubkey) {
     if (!pubkey) { showToast('لا يوجد مفتاح للمستخدم', 'error'); return; }
-    // إخفاء جميع الـ views
     document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
     const profileView = document.getElementById('view-profile');
     if (profileView) profileView.classList.remove('hidden');
     currentProfilePubkey = pubkey;
-    // جلب البيانات
     loadProfileData(pubkey);
 }
 
@@ -391,13 +389,11 @@ function closeProfilePage() {
     }
     currentProfilePubkey = null;
     profileOldestTimestamp = null;
-    // مسح المحتوى القديم
     const container = document.getElementById('profile-posts-container');
     if (container) container.innerHTML = '';
 }
 
 async function loadProfileData(pubkey) {
-    // جلب الميتاداتا
     const sub = pool.subscribeMany(RELAYS, [{ kinds: [0], authors: [pubkey], limit: 1 }], {
         onevent: (event) => {
             try {
@@ -415,7 +411,6 @@ async function loadProfileData(pubkey) {
             sub.close();
         }
     });
-    // تحميل المنشورات
     loadProfilePosts(pubkey);
 }
 
