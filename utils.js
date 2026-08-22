@@ -3,6 +3,10 @@
    دوال مساعدة عامة
    ========================================================= */
 
+// ============================
+// 3. دوال مساعدة
+// ============================
+
 function $(id) {
     return document.getElementById(id);
 }
@@ -63,6 +67,34 @@ function getTagValue(tags, key) {
     }
     return null;
 }
+
+// ============================
+// نشر حدث على الـ relays مع تأكيد فعلي
+// ============================
+// ⚠️ مهم جدًا: pool.publish(RELAYS, event) بيرجّع Array من الـ Promises
+// (وعد واحد لكل relay)، مش Promise واحد. لو تعمل `await pool.publish(...)`
+// مباشرة، الـ await بيتحقق فورًا على الـ Array نفسه (مش على محتواه)
+// من غير ما يستنى أي رد فعلي من أي relay — يعني الكود بيكمل وكأن النشر
+// نجح حتى لو كل الـ relays رفضوا الحدث فعليًا، وده كان بيسبب اختفاء
+// المنشورات بعد الريفرش لإنها ما كانتش اتخزنت على أي relay من الأساس.
+// الدالة دي بتستخدم Promise.allSettled على المصفوفة عشان تستنى كل
+// الردود فعليًا، وترمي خطأ واضح لو محدش قبل الحدث.
+async function publishToRelays(event) {
+    const results = await Promise.allSettled(pool.publish(RELAYS, event));
+    const okCount = results.filter(r => r.status === 'fulfilled').length;
+    if (okCount === 0) {
+        const reasons = results
+            .map(r => (r.reason?.message || r.reason || '').toString())
+            .filter(Boolean)
+            .join(' | ');
+        throw new Error(reasons ? `لم يقبل أي relay هذا الحدث: ${reasons}` : 'لم يقبل أي relay هذا الحدث');
+    }
+    return okCount;
+}
+
+// ============================
+// 4. نظام التنبيهات (Toast)
+// ============================
 
 let toastTimeout = null;
 
