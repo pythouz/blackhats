@@ -112,7 +112,7 @@ async function leaveRoom() {
             tags: [['t', currentRoom], ['p', pk], ['status', 'leave']],
             content: ''
         });
-        await pool.publish(RELAYS, event);
+        await publishToRelays(event);
     } catch(e) {}
 
     currentRoom = null;
@@ -141,7 +141,7 @@ async function announcePresence(roomName) {
         tags: [['t', roomName], ['p', pk], ['status', 'join'], ['peer', myPeerId]],
         content: ''
     });
-    await pool.publish(RELAYS, event);
+    await publishToRelays(event);
 }
 
 function listenForPeers(roomName) {
