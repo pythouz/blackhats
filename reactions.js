@@ -7,14 +7,24 @@
 // 13. نظام الإعجابات
 // ============================
 
+// قفل يمنع إرسال أكتر من حدث إعجاب/إلغاء لنفس البوست في نفس اللحظة
+// (بيحل مشكلة تكرار الإعجاب لما المستخدم يضغط الزرار أكتر من مرة بسرعة)
+const likeInFlight = new Set();
+
+// كل الـ pubkeys اللي عملنا لها tracking لإعجاباتهم — بتُستخدم لتضييق فلتر
+// اشتراك kind 5 (بدل فلتر مفتوح بيترفض/يتقيّد من أغلب الـ relays)
+const knownLikerAuthors = new Set();
+
 async function likePost(postId, postPubkey) {
     if (!pk) { showToast('لا توجد هوية', 'error'); return; }
+    if (likeInFlight.has(postId)) return; // في عملية شغالة بالفعل على نفس البوست، تجاهل
     const stat = postStats.get(postId);
     if (!stat) { showToast('المنشور غير موجود', 'error'); return; }
 
     const likers = postLikers.get(postId) || new Map();
     const existingLikeId = likers.get(pk);
 
+    likeInFlight.add(postId);
     try {
         if (existingLikeId) {
             // ✅ إلغاء الإعجاب: نرسل kind 5
@@ -45,6 +55,7 @@ async function likePost(postId, postPubkey) {
 
             likers.set(pk, likeEvent.id);
             likeEventIndex.set(likeEvent.id, { postId, pubkey: pk });
+            knownLikerAuthors.add(pk);
             stat.myLikeEventId = likeEvent.id;
             updatePostScore(postId);
             syncLikeCountUI(postId);
@@ -53,6 +64,8 @@ async function likePost(postId, postPubkey) {
         }
     } catch (error) {
         showToast('فشل: ' + getErrorMessage(error), 'error');
+    } finally {
+        likeInFlight.delete(postId);
     }
 }
 
@@ -127,10 +140,19 @@ function startReactionSubscription() {
     // جلب الإعجابات والإلغاءات السابقة
     fetchPastLikesAndDeletes(postIds);
 
+    // فلتر kind 5 لازم يتحدد بـ authors بدل ما يبقى مفتوح تمامًا،
+    // لأن أغلب الـ relays (damus/nos.lol/nostr.band) بترفض أو بتـ rate-limit
+    // أي subscription على kind 5 من غير أي قيد (#e أو authors) — وده كان سبب
+    // إن الإلغاء ما يوصلش لحظيًا للطرف التاني. بنستخدم قائمة كل الناس اللي
+    // عملنالهم tracking لإعجاباتهم لحد دلوقتي (بتكبر تلقائيًا مع كل like جديد).
+    const deleteFilter = knownLikerAuthors.size
+        ? { kinds: [5], authors: Array.from(knownLikerAuthors) }
+        : { kinds: [5] }; // أول تشغيل قبل ما نعرف أي حد لسه — هيتظبط تلقائيًا في أول restart بعد 30 ثانية
+
     // الاشتراك في الأحداث الجديدة
     reactionsSubscription = pool.subscribeMany(RELAYS, [
         { kinds: [7], '#e': postIds },
-        { kinds: [5] },
+        deleteFilter,
         { kinds: [1], '#e': postIds }
     ], {
         onevent: (event) => {
@@ -171,22 +193,28 @@ function fetchPastLikesAndDeletes(postIds) {
     const batchSize = 50;
     for (let i = 0; i < postIds.length; i += batchSize) {
         const batch = postIds.slice(i, i + batchSize);
-        const sub = pool.subscribeMany(RELAYS, [
-            { kinds: [7], '#e': batch, limit: 500 },
-            { kinds: [5], limit: 500 }
+
+        // مرحلة 1: هات كل إعجابات الدفعة دي الأول، ده بيملي knownLikerAuthors
+        const likeSub = pool.subscribeMany(RELAYS, [
+            { kinds: [7], '#e': batch, limit: 500 }
         ], {
-            onevent: (event) => {
-                if (event.kind === 7) {
-                    handleLikeEvent(event);
-                } else if (event.kind === 5) {
-                    handleDeleteEvent(event);
-                }
-            },
+            onevent: (event) => handleLikeEvent(event),
             oneose: () => {
-                try { sub.close(); } catch(e) {}
+                try { likeSub.close(); } catch(e) {}
+                // مرحلة 2: دلوقتي نعرف مين اللي عمل لايك، فنقدر نطلب الحذف
+                // بتاعهم بفلتر authors بدل فلتر مفتوح
+                const authors = Array.from(knownLikerAuthors);
+                const deleteFilter = authors.length
+                    ? { kinds: [5], authors, limit: 500 }
+                    : { kinds: [5], limit: 500 };
+                const deleteSub = pool.subscribeMany(RELAYS, [deleteFilter], {
+                    onevent: (event) => handleDeleteEvent(event),
+                    oneose: () => { try { deleteSub.close(); } catch(e) {} }
+                });
+                setTimeout(() => { try { deleteSub.close(); } catch(e) {} }, 5000);
             }
         });
-        setTimeout(() => { try { sub.close(); } catch(e) {} }, 5000);
+        setTimeout(() => { try { likeSub.close(); } catch(e) {} }, 5000);
     }
 }
 
@@ -230,6 +258,7 @@ function handleLikeEvent(event) {
     if (!targetId) return;
     const pubkey = event.pubkey;
     const likeEventId = event.id;
+    knownLikerAuthors.add(pubkey);
 
     if (!postStats.has(targetId)) {
         initPostState(targetId, event.created_at || Math.floor(Date.now()/1000));
@@ -272,20 +301,24 @@ function handleLikeEvent(event) {
 
 function fetchLikesForNewPost(postId) {
     if (!postId) return;
-    const sub = pool.subscribeMany(RELAYS, [
-        { kinds: [7], '#e': [postId], limit: 100 },
-        { kinds: [5], limit: 100 }
+    const likeSub = pool.subscribeMany(RELAYS, [
+        { kinds: [7], '#e': [postId], limit: 100 }
     ], {
-        onevent: (event) => {
-            if (event.kind === 7) {
-                handleLikeEvent(event);
-            } else if (event.kind === 5) {
-                handleDeleteEvent(event);
-            }
-        },
-        oneose: () => { try { sub.close(); } catch(e) {} }
+        onevent: (event) => handleLikeEvent(event),
+        oneose: () => {
+            try { likeSub.close(); } catch(e) {}
+            const authors = Array.from(knownLikerAuthors);
+            const deleteFilter = authors.length
+                ? { kinds: [5], authors, limit: 100 }
+                : { kinds: [5], limit: 100 };
+            const deleteSub = pool.subscribeMany(RELAYS, [deleteFilter], {
+                onevent: (event) => handleDeleteEvent(event),
+                oneose: () => { try { deleteSub.close(); } catch(e) {} }
+            });
+            setTimeout(() => { try { deleteSub.close(); } catch(e) {} }, 5000);
+        }
     });
-    setTimeout(() => { try { sub.close(); } catch(e) {} }, 5000);
+    setTimeout(() => { try { likeSub.close(); } catch(e) {} }, 5000);
 }
 
 // ============================
