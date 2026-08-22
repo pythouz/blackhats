@@ -31,16 +31,17 @@ async function initAccessControl() {
         return true;
     }
 
-    // لم يتم الموافقة بعد → نعرض حالة "قيد المراجعة" أو "غير مسجل"
-    if (myAccessStatus === 'not_registered') {
-        // إذا لم يرسل الطلب بعد، نفتح بوابة التسجيل مجدداً
+    // تحديد الحالة: هل أرسل المستخدم طلب تسجيل من قبل؟
+    const registrationSent = localStorage.getItem('pulse_registration_sent') === pk;
+    if (!registrationSent) {
+        myAccessStatus = 'not_registered';
         showAuthGate();
         return false;
+    } else {
+        myAccessStatus = 'pending';
+        showPendingApproval();
+        return false;
     }
-
-    // إذا أرسل الطلب سابقاً وننتظر الموافقة
-    showPendingApproval();
-    return false;
 }
 
 function showPendingApproval() {
@@ -66,6 +67,7 @@ function hidePendingApproval() {
 }
 
 function resubmitRegistration() {
+    localStorage.removeItem('pulse_registration_sent');
     myAccessStatus = 'not_registered';
     hidePendingApproval();
     showAuthGate();
@@ -143,6 +145,7 @@ function subscribeToApprovalEvents() {
                 approvedPubkeys.delete(target);
                 if (target === pk) {
                     myAccessStatus = 'not_registered';
+                    localStorage.removeItem('pulse_registration_sent');
                     saveApprovedCache();
                     showAuthGate();
                 }
