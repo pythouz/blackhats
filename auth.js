@@ -301,6 +301,9 @@ async function registerUser() {
     });
     await publishToRelays(event);
 
+    // حفظ علامة إرسال الطلب
+    localStorage.setItem('pulse_registration_sent', pk);
+
     // عرض المفتاح الخاص للمستخدم (مرة واحدة)
     const nsec = NostrTools.nip19.nsecEncode(generated);
     alert(`تم إنشاء حسابك بنجاح!\n\nهذا هو مفتاحك الخاص (nsec):\n${nsec}\n\nاحفظه في مكان آمن. لن يظهر مرة أخرى.\n\nسيتم إعلامك عند موافقة الإدارة.`);
