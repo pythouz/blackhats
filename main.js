@@ -310,7 +310,7 @@ window.applyBanFilter = applyBanFilter;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 
 window.switchAdminTab = switchAdminTab;
-window.submitRegistration = registerUser; // ✅ التصحيح
+window.submitRegistration = registerUser; // ✅ ربط الدالة الجديدة
 window.approveUser = approveUser;
 window.revokeUser = revokeUser;
 window.dismissRegistration = dismissRegistration;
