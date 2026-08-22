@@ -227,7 +227,7 @@ async function saveProfile() {
         Object.keys(contentObj).forEach(k => { if (contentObj[k] === undefined || contentObj[k] === '') delete contentObj[k]; });
 
         const event = await signEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify(contentObj) });
-        await pool.publish(RELAYS, event);
+        await publishToRelays(event);
 
         myProfile = { name, about, picture: pictureUrl, banner: bannerUrl, location, website };
         profileCache.set(pk, { name, picture: pictureUrl || null, about: about || null });
@@ -361,20 +361,22 @@ function fetchProfiles(pubkeys) {
 }
 
 // ==============================================================
-//  دوال صفحة الملف الشخصي (Profile Page)
+//  دوال صفحة الملف الشخصي (Profile Page)  (جديد)
 // ==============================================================
 
 let currentProfilePubkey = null;
 let profilePostsSubscription = null;
-let profilePostsLimit = 30;
+let profilePostsLimit = 30;  // زيادة للاختبار
 let profileOldestTimestamp = null;
 
 function openProfilePage(pubkey) {
     if (!pubkey) { showToast('لا يوجد مفتاح للمستخدم', 'error'); return; }
+    // إخفاء جميع الـ views
     document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
     const profileView = document.getElementById('view-profile');
     if (profileView) profileView.classList.remove('hidden');
     currentProfilePubkey = pubkey;
+    // جلب البيانات
     loadProfileData(pubkey);
 }
 
@@ -389,11 +391,13 @@ function closeProfilePage() {
     }
     currentProfilePubkey = null;
     profileOldestTimestamp = null;
+    // مسح المحتوى القديم
     const container = document.getElementById('profile-posts-container');
     if (container) container.innerHTML = '';
 }
 
 async function loadProfileData(pubkey) {
+    // جلب الميتاداتا
     const sub = pool.subscribeMany(RELAYS, [{ kinds: [0], authors: [pubkey], limit: 1 }], {
         onevent: (event) => {
             try {
@@ -411,6 +415,7 @@ async function loadProfileData(pubkey) {
             sub.close();
         }
     });
+    // تحميل المنشورات
     loadProfilePosts(pubkey);
 }
 
