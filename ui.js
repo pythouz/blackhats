@@ -3,10 +3,6 @@
    التنقل بين الصفحات، المظهر، الإعدادات، البحث، والحظر
    ========================================================= */
 
-// ============================
-// 17. التنقل والمظهر
-// ============================
-
 function switchView(viewName) {
     document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
     const target = $(`view-${viewName}`);
@@ -45,10 +41,6 @@ function toggleSettings() {
     if (panel) panel.classList.toggle('hidden');
 }
 
-// ============================
-// 19. دوال الصور المفقودة (البروفايل)
-// ============================
-
 function onAvatarSelected(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -77,10 +69,6 @@ function removeBanner() {
     pendingBannerFile = null;
     renderProfileImages();
 }
-
-// ============================
-// 20. نظام الحظر — واجهة المستخدم
-// ============================
 
 function addBanButtonToPost(postElement, postPubkey) {
     const adminHex = window.ADMIN_PUBKEY_HEX;
@@ -143,10 +131,6 @@ async function toggleBanUser(targetPubkey) {
         showToast('فشل نشر الحدث: ' + getErrorMessage(e), 'error');
     }
 }
-
-// ============================
-// لوحة تحكم الأدمن
-// ============================
 
 let adminPanelOpen = false;
 
@@ -251,10 +235,6 @@ function renderBannedList() {
     `).join('');
 }
 
-// ============================
-// 21. البحث عن مستخدم
-// ============================
-
 function searchUser() {
     const input = document.getElementById('search-input');
     if (!input) return;
@@ -323,17 +303,9 @@ function searchUser() {
     });
 }
 
-// ============================
-// 22. استيراد المفتاح من الهيدر
-// ============================
-
 function importKeyFromHeader() {
     importKey();
 }
-
-// ============================
-// 23. تسجيل الخروج
-// ============================
 
 function logout() {
     if (!confirm('هل أنت متأكد من تسجيل الخروج؟ سيتم حذف المفتاح الخاص من هذا المتصفح.')) return;
