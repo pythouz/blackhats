@@ -127,13 +127,15 @@ function renderPost(event) {
     `;
 
     renderedPosts.set(event.id, div);
-    fetchLikesForNewPost(event.id);
     limitMap(renderedPosts, MAX_RENDERED_POSTS);
     insertPostCard(div);
     fetchProfiles([event.pubkey]);
 
     addBanButtonToPost(div, event.pubkey);
     processPendingReplies(event.id);
+
+    // جلب الإعجابات لهذا المنشور
+    fetchLikesForNewPost(event.id);
 }
 
 // ============================
