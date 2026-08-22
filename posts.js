@@ -127,15 +127,13 @@ function renderPost(event) {
     `;
 
     renderedPosts.set(event.id, div);
+    fetchLikesForNewPost(event.id);
     limitMap(renderedPosts, MAX_RENDERED_POSTS);
     insertPostCard(div);
     fetchProfiles([event.pubkey]);
 
     addBanButtonToPost(div, event.pubkey);
     processPendingReplies(event.id);
-
-    // جلب الإعجابات لهذا المنشور
-    fetchLikesForNewPost(event.id);
 }
 
 // ============================
@@ -147,7 +145,7 @@ async function deletePost(postId) {
     if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
     try {
         const event = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', postId]], content: '' });
-        await pool.publish(RELAYS, event);
+        await publishToRelays(event);
         removePostFromUI(postId);
         showToast('تم حذف المنشور', 'success');
     } catch (error) {
@@ -292,10 +290,10 @@ async function confirmEdit() {
     const oldPostId = editingPostId;
     try {
         const deleteEvent = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', oldPostId]], content: '' });
-        await pool.publish(RELAYS, deleteEvent);
+        await publishToRelays(deleteEvent);
 
         const newEvent = await signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [['t', APP_TAG]], content: newContent });
-        await pool.publish(RELAYS, newEvent);
+        await publishToRelays(newEvent);
 
         const oldCard = getPostCard(oldPostId);
         if (oldCard) {
@@ -401,6 +399,13 @@ async function publishPost() {
 
     try {
         const event = await signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [['t', APP_TAG]], content });
+
+        // ✅ لازم نستنى تأكيد النشر الحقيقي من الـ relays الأول (عبر
+        // publishToRelays اللي بتستنى فعليًا) قبل ما نعرض الكارت على
+        // الشاشة، وإلا لو النشر فشل هيفضل ظاهر عندك بس مش موجود فعليًا
+        // على أي relay، ويختفي أول ما تعمل ريفرش.
+        await publishToRelays(event);
+
         if (!seenEvents.has(event.id)) {
             seenEvents.add(event.id);
             initPostState(event.id, event.created_at);
@@ -410,7 +415,6 @@ async function publishPost() {
             reorderFeed();
             scheduleReactionResubscribe();
         }
-        await pool.publish(RELAYS, event);
         input.value = '';
         pendingAttachments = [];
         renderAttachmentPreviews();
