@@ -57,6 +57,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // إذا لم يتم تسجيل الدخول بعد (لا يوجد مفتاح)، initIdentity ستعرض بوابة الدخول
+    if (!pk) {
+        // نحن في حالة انتظار تسجيل الدخول/التسجيل
+        return;
+    }
+
     const accessGranted = isValid ? await initAccessControl() : true;
 
     await loadBanList();
@@ -79,6 +85,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (accessGranted) {
         unlockApp();
+    } else {
+        // غير مصرح له، عرض حالة الانتظار
+        showPendingApproval();
     }
 });
 
@@ -86,6 +95,8 @@ function unlockApp() {
     if (window.appUnlocked) return;
     window.appUnlocked = true;
     hideAccessGate();
+    hidePendingApproval();
+    hideAuthGate();
 
     loadMyProfile();
     startFeed();
@@ -109,7 +120,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================
-// دوال الحظر
+// دوال الحظر (كما هي)
 // ============================
 
 let banSubscription = null;
@@ -303,3 +314,12 @@ window.dismissRegistration = dismissRegistration;
 window.openProfilePage = openProfilePage;
 window.closeProfilePage = closeProfilePage;
 window.loadMoreProfilePosts = loadMoreProfilePosts;
+
+// (إضافة) ربط دوال بوابة الدخول
+window.showAuthGate = showAuthGate;
+window.hideAuthGate = hideAuthGate;
+window.switchAuthTab = switchAuthTab;
+window.loginWithNip07 = loginWithNip07;
+window.registerUser = registerUser;
+window.showPendingApproval = showPendingApproval;
+window.hidePendingApproval = hidePendingApproval;
