@@ -3,10 +3,6 @@
    نقطة تشغيل التطبيق (Boot)
    ========================================================= */
 
-// ============================
-// التحقق من ADMIN_PUBKEY_HEX
-// ============================
-
 function validateAdminPubkey() {
     if (typeof ADMIN_NPUB === 'undefined' || !ADMIN_NPUB || !ADMIN_NPUB.startsWith('npub1')) {
         console.error('[Admin] ❌ ADMIN_NPUB غير موجود أو غير صحيح في config.js.');
@@ -17,7 +13,7 @@ function validateAdminPubkey() {
     try {
         const decoded = NostrTools.nip19.decode(ADMIN_NPUB);
         if (decoded.type !== 'npub') throw new Error('ليس npub');
-        const hex = decoded.data; // nostr-tools 2.x يرجّع hex string جاهز مباشرة
+        const hex = decoded.data;
         if (typeof hex !== 'string' || hex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(hex)) {
             throw new Error('نتيجة فك التشفير غير صالحة');
         }
@@ -31,17 +27,9 @@ function validateAdminPubkey() {
     }
 }
 
-// ============================
-// التحقق مما إذا كان المستخدم الحالي هو المدير
-// ============================
-
 function isCurrentUserAdmin() {
     return pk && window.ADMIN_PUBKEY_HEX && pk === window.ADMIN_PUBKEY_HEX;
 }
-
-// ============================
-// 20. Boot
-// ============================
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Pulse] بدء التشغيل');
@@ -52,18 +40,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('⚠️ خطأ في إعدادات المدير: تأكد من ADMIN_PUBKEY_HEX في config.js', 'error');
     }
 
-    // إعداد الثيم
     if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark');
     }
 
     await initIdentity();
 
-    // تحميل الكاش المحلي فوراً قبل أي شيء، عشان المحظورين ميظهروش حتى لثانية واحدة
     loadBannedCache();
     applyBanFilter();
 
-    // التحقق من هوية المدير بعد تحميل الهوية
     if (isValid) {
         if (isCurrentUserAdmin()) {
             console.log('[Admin] ✅ المستخدم الحالي هو المدير');
@@ -72,8 +57,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // بوابة الدخول: يقف هنا لو المستخدم لسه مش موافَق عليه من الإدارة
-    // (لو إعدادات المدير غلط، منسيبش الموقع مقفول على الكل، نسمح بالدخول عادي)
     const accessGranted = isValid ? await initAccessControl() : true;
 
     await loadBanList();
@@ -100,7 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function unlockApp() {
-    if (window.appUnlocked) return; // منع التشغيل مرتين
+    if (window.appUnlocked) return;
     window.appUnlocked = true;
     hideAccessGate();
 
@@ -126,7 +109,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================
-// دوال الحظر (إدارة القائمة والاشتراك)
+// دوال الحظر
 // ============================
 
 let banSubscription = null;
@@ -302,7 +285,6 @@ window.removeEditAttachment = removeEditAttachment;
 window.loadMorePosts = loadMorePosts;
 window.logout = logout;
 
-// دوال الحظر
 window.toggleBanUser = toggleBanUser;
 window.openAdminPanel = openAdminPanel;
 window.closeAdminPanel = closeAdminPanel;
@@ -312,14 +294,12 @@ window.processBanEvent = processBanEvent;
 window.applyBanFilter = applyBanFilter;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 
-// دوال نظام التسجيل بموافقة الإدارة
 window.switchAdminTab = switchAdminTab;
 window.submitRegistration = submitRegistration;
 window.approveUser = approveUser;
 window.revokeUser = revokeUser;
 window.dismissRegistration = dismissRegistration;
 
-// دوال صفحة الملف الشخصي (جديد)
 window.openProfilePage = openProfilePage;
 window.closeProfilePage = closeProfilePage;
 window.loadMoreProfilePosts = loadMoreProfilePosts;
