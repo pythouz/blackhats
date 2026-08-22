@@ -4,29 +4,11 @@
    ========================================================= */
 
 // ============================
-// دوال التشفير للمدير
+// دوال التشفير للمدير (موجودة في auth.js)
 // ============================
 
-async function encryptToAdmin(plaintext) {
-    const adminHex = window.ADMIN_PUBKEY_HEX;
-    if (!adminHex) throw new Error('المفتاح العام للمدير غير موجود');
-    if (usingNip07 && window.nostr?.nip04?.encrypt) {
-        return await window.nostr.nip04.encrypt(adminHex, plaintext);
-    }
-    if (!secretKeyHex) throw new Error('لا يوجد مفتاح خاص للتشفير');
-    return await NostrTools.nip04.encrypt(secretKeyHex, adminHex, plaintext);
-}
-
-async function decryptFromUser(ciphertext, userPubkey) {
-    if (usingNip07 && window.nostr?.nip04?.decrypt) {
-        return await window.nostr.nip04.decrypt(userPubkey, ciphertext);
-    }
-    if (!secretKeyHex) throw new Error('لا يوجد مفتاح خاص لفك التشفير');
-    return await NostrTools.nip04.decrypt(secretKeyHex, userPubkey, ciphertext);
-}
-
 // ============================
-// نظام البوابة (Access Gate)
+// نظام البوابة (Access Gate) — تم تحديثه ليعمل مع auth.js
 // ============================
 
 async function initAccessControl() {
@@ -49,105 +31,46 @@ async function initAccessControl() {
         return true;
     }
 
-    renderAccessGate();
+    // لم يتم الموافقة بعد → نعرض حالة "قيد المراجعة" أو "غير مسجل"
+    if (myAccessStatus === 'not_registered') {
+        // إذا لم يرسل الطلب بعد، نفتح بوابة التسجيل مجدداً
+        showAuthGate();
+        return false;
+    }
+
+    // إذا أرسل الطلب سابقاً وننتظر الموافقة
+    showPendingApproval();
     return false;
 }
 
-function renderAccessGate() {
-    let gate = document.getElementById('access-gate');
+function showPendingApproval() {
+    let gate = document.getElementById('pending-approval');
     if (!gate) {
         gate = document.createElement('div');
-        gate.id = 'access-gate';
-        gate.className = 'fixed inset-0 z-[200] bg-white dark:bg-dark flex items-center justify-center p-4';
-        gate.style.background = 'rgba(0,0,0,0.85)';
-        gate.style.backdropFilter = 'blur(10px)';
+        gate.id = 'pending-approval';
+        gate.className = 'fixed inset-0 z-[150] bg-black/50 flex items-center justify-center p-4';
         document.body.appendChild(gate);
     }
     gate.innerHTML = `
-        <div class="bg-white dark:bg-surface rounded-3xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700 text-center">
-            <h2 class="text-3xl font-black gradient-text mb-2">Pulse</h2>
-            <p class="text-gray-500 dark:text-gray-400 text-sm mb-6">منصة المجتمع الحي اللامركزية</p>
-            <div id="gate-content">
-                <!-- سيتم ملؤه حسب الحالة -->
-            </div>
+        <div class="bg-white dark:bg-surface rounded-3xl shadow-2xl max-w-md w-full p-6 text-center">
+            <i class="fas fa-clock text-5xl text-yellow-500 mb-4"></i>
+            <h3 class="text-xl font-bold dark:text-white mb-2">طلبك قيد المراجعة</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">تم استلام طلب التسجيل الخاص بك. سيتم إعلامك عند الموافقة.</p>
+            <button onclick="resubmitRegistration()" class="text-accent hover:underline text-sm">إعادة إرسال الطلب</button>
         </div>
     `;
-    updateGateContent();
 }
 
-function updateGateContent() {
-    const content = document.getElementById('gate-content');
-    if (!content) return;
-
-    if (myAccessStatus === 'pending') {
-        content.innerHTML = `
-            <div class="py-6">
-                <i class="fas fa-clock text-4xl text-yellow-500 mb-4"></i>
-                <h3 class="text-xl font-bold dark:text-white">طلبك قيد المراجعة</h3>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">تم استلام طلب التسجيل الخاص بك. سيتم إعلامك عند الموافقة.</p>
-                <button onclick="resubmitRegistration()" class="mt-4 text-accent hover:underline text-sm">إعادة إرسال الطلب</button>
-            </div>
-        `;
-        return;
-    }
-
-    if (myAccessStatus === 'not_registered' || myAccessStatus === 'checking') {
-        content.innerHTML = `
-            <div class="text-right">
-                <h3 class="text-lg font-bold dark:text-white mb-4">تسجيل عضوية جديدة</h3>
-                <p class="text-xs text-gray-400 mb-4">أدخل بياناتك لطلب الانضمام إلى المنصة. سيتم مراجعة طلبك من قبل الإدارة.</p>
-                <div class="space-y-3">
-                    <input id="reg-email" type="email" placeholder="البريد الإلكتروني" 
-                           class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm">
-                    <input id="reg-phone" type="tel" placeholder="رقم الهاتف" 
-                           class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm">
-                    <button onclick="submitRegistration()" 
-                            class="w-full bg-gradient-to-r from-accent to-accent2 text-white font-bold py-3 rounded-2xl hover:opacity-90 transition">
-                        <i class="fas fa-paper-plane ml-2"></i> إرسال الطلب
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-}
-
-function hideAccessGate() {
-    const gate = document.getElementById('access-gate');
-    if (gate) gate.remove();
-}
-
-async function submitRegistration() {
-    const email = document.getElementById('reg-email')?.value.trim();
-    const phone = document.getElementById('reg-phone')?.value.trim();
-    if (!email || !phone) { showToast('يرجى ملء جميع الحقول', 'error'); return; }
-    if (!email.includes('@')) { showToast('بريد إلكتروني غير صحيح', 'error'); return; }
-    if (phone.length < 8) { showToast('رقم الهاتف قصير جداً', 'error'); return; }
-
-    const plaintext = JSON.stringify({ email, phone, created_at: Math.floor(Date.now() / 1000) });
-    let ciphertext;
-    try {
-        ciphertext = await encryptToAdmin(plaintext);
-    } catch(e) {
-        showToast('فشل التشفير: ' + e.message, 'error');
-        return;
-    }
-
-    const adminHex = window.ADMIN_PUBKEY_HEX;
-    const event = await signEvent({
-        kind: REGISTER_EVENT_KIND,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['p', adminHex]],
-        content: ciphertext
-    });
-    await publishToRelays(event);
-    myAccessStatus = 'pending';
-    updateGateContent();
-    showToast('تم إرسال طلب التسجيل ✅', 'success');
+function hidePendingApproval() {
+    document.getElementById('pending-approval')?.remove();
 }
 
 function resubmitRegistration() {
     myAccessStatus = 'not_registered';
-    updateGateContent();
+    hidePendingApproval();
+    showAuthGate();
+    // نحول لتبويب التسجيل
+    switchAuthTab('register');
 }
 
 // ============================
@@ -212,7 +135,8 @@ function subscribeToApprovalEvents() {
                 if (target === pk && myAccessStatus !== 'approved') {
                     myAccessStatus = 'approved';
                     saveApprovedCache();
-                    hideAccessGate();
+                    hidePendingApproval();
+                    hideAuthGate();
                     unlockApp();
                 }
             } else if (ev.content === 'revoke') {
@@ -220,7 +144,7 @@ function subscribeToApprovalEvents() {
                 if (target === pk) {
                     myAccessStatus = 'not_registered';
                     saveApprovedCache();
-                    renderAccessGate();
+                    showAuthGate();
                 }
             }
             saveApprovedCache();
@@ -265,8 +189,9 @@ async function processRegistrationEvent(event) {
     }
     let data;
     try { data = JSON.parse(plaintext); } catch(e) { return; }
-    if (!data.email || !data.phone) return;
+    if (!data.email || !data.phone || !data.name) return;
     pendingRegistrations.set(event.pubkey, {
+        name: data.name,
         email: data.email,
         phone: data.phone,
         created_at: data.created_at || event.created_at,
@@ -294,7 +219,8 @@ function renderPendingRegistrationsPanel() {
         <div class="flex flex-col gap-1 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
             <div class="flex justify-between items-start">
                 <div class="text-right">
-                    <p class="font-medium dark:text-white">${escapeHtml(data.email)}</p>
+                    <p class="font-medium dark:text-white">${escapeHtml(data.name)}</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(data.email)}</p>
                     <p class="text-xs text-gray-500 dark:text-gray-400">📱 ${escapeHtml(data.phone)}</p>
                     <p class="text-[10px] text-gray-400 font-mono break-all">${pubkey.slice(0,12)}...</p>
                     <p class="text-[10px] text-gray-400">🕒 ${new Date(data.created_at*1000).toLocaleString('ar-EG')}</p>
