@@ -306,7 +306,8 @@ window.applyBanFilter = applyBanFilter;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 
 window.switchAdminTab = switchAdminTab;
-window.submitRegistration = submitRegistration;
+// ✅ التعديل: نربط submitRegistration بـ registerUser بدلاً من دالة غير موجودة
+window.submitRegistration = registerUser;
 window.approveUser = approveUser;
 window.revokeUser = revokeUser;
 window.dismissRegistration = dismissRegistration;
