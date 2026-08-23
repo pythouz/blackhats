@@ -95,3 +95,12 @@ let myContactsContent = '';     // محتوى آخر kind:3 بتاعي (بيتح
 const myContacts = new Set();   // pubkeys اللي بتابعهم أنا (مشتقة من myContactTags، للبحث السريع في الواجهة)
 let myContactsLoaded = false;   // هل جبنا قايمة متابعتي من الـ relays قبل كده؟
 const followCountsCache = new Map(); // pubkey -> { following, followers }
+
+// ============================
+// حماية من تكرار الردود/التعليقات
+// ============================
+// لما نبعت رد بنعرضه فورًا محليًا (handleIncomingReply)، وبعدين نفس
+// الرد بيرجعلنا تاني من الـ relay عن طريق اشتراك الردود (reactions.js)
+// — من غير حماية، ده كان بيعرض نفس الرد مرتين. seenReplies بتضمن إن
+// كل event.id يتعالج مرة واحدة بس.
+const seenReplies = new Set();
