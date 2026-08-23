@@ -86,3 +86,12 @@ let wakeLock = null;
 // تحميل المزيد
 let oldestTimestamp = null;
 let loadingMore = false;
+
+// ============================
+// نظام المتابعة (Follow) — NIP-02 Contact List (kind:3)
+// ============================
+let myContactTags = [];         // الـ tags الكاملة لآخر نسخة من قايمة متابعتي (بنحافظ عليها كاملة عشان مانمسحش حد بالغلط لما ننشر تعديل)
+let myContactsContent = '';     // محتوى آخر kind:3 بتاعي (بيتحفظ زي ما هو)
+const myContacts = new Set();   // pubkeys اللي بتابعهم أنا (مشتقة من myContactTags، للبحث السريع في الواجهة)
+let myContactsLoaded = false;   // هل جبنا قايمة متابعتي من الـ relays قبل كده؟
+const followCountsCache = new Map(); // pubkey -> { following, followers }
