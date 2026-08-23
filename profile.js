@@ -369,6 +369,11 @@ let profilePostsSubscription = null;
 let profilePostsLimit = 30;  // زيادة للاختبار
 let profileOldestTimestamp = null;
 
+function openMyProfilePage() {
+    if (!pk) { showToast('سجّل الدخول الأول', 'error'); return; }
+    openProfilePage(pk);
+}
+
 function openProfilePage(pubkey) {
     if (!pubkey) { showToast('لا يوجد مفتاح للمستخدم', 'error'); return; }
     // إخفاء جميع الـ views
