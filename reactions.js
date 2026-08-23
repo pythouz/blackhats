@@ -387,6 +387,11 @@ async function confirmReply() {
 }
 
 function handleIncomingReply(event) {
+    if (!event?.id) return;
+    if (seenReplies.has(event.id)) return;
+    seenReplies.add(event.id);
+    limitSet(seenReplies, MAX_SEEN_EVENTS);
+
     const rootTag = event.tags.find(t => t[0] === 'e' && t[3] === 'root');
     const rootId = rootTag ? rootTag[1] : null;
     if (!rootId) {
@@ -446,6 +451,8 @@ function processAllPendingReplies() {
 }
 
 function renderReply(event, container) {
+    if (document.querySelector(`.reply-item[data-post-id="${CSS.escape(event.id)}"]`)) return;
+
     const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', {
         hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
     });
