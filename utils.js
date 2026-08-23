@@ -77,19 +77,51 @@ function getTagValue(tags, key) {
 // من غير ما يستنى أي رد فعلي من أي relay — يعني الكود بيكمل وكأن النشر
 // نجح حتى لو كل الـ relays رفضوا الحدث فعليًا، وده كان بيسبب اختفاء
 // المنشورات بعد الريفرش لإنها ما كانتش اتخزنت على أي relay من الأساس.
-// الدالة دي بتستخدم Promise.allSettled على المصفوفة عشان تستنى كل
-// الردود فعليًا، وترمي خطأ واضح لو محدش قبل الحدث.
+//
+// ⚡ (تحسين الأداء) قبل كده كنا بنستخدم Promise.allSettled وده بيستنى
+// الـ 4 relays الأربعة كلهم يردوا (سواء نجحوا أو فشلوا) قبل ما يسيب
+// الكود يكمل. النتيجة إن أي حركة في التطبيق (نشر/لايك/رد/متابعة/حذف...)
+// كانت بتاخد وقت أطول relay أبطأهم — وده كان السبب الرئيسي في إحساس
+// إن المنصة كلها بطيئة. دلوقتي الدالة بترجع فور ما أول relay يقبل
+// الحدث (زي أغلب تطبيقات Nostr)، والباقي بيكمل نشره في الخلفية.
+// وبرضو فيه timeout أمان (10 ثواني) عشان لو relay اتعلق من غير ما
+// يرد أو يفشل، التطبيق ميفضلش واقف له للأبد.
 async function publishToRelays(event) {
-    const results = await Promise.allSettled(pool.publish(RELAYS, event));
-    const okCount = results.filter(r => r.status === 'fulfilled').length;
-    if (okCount === 0) {
-        const reasons = results
-            .map(r => (r.reason?.message || r.reason || '').toString())
-            .filter(Boolean)
-            .join(' | ');
-        throw new Error(reasons ? `لم يقبل أي relay هذا الحدث: ${reasons}` : 'لم يقبل أي relay هذا الحدث');
-    }
-    return okCount;
+    const pubs = pool.publish(RELAYS, event);
+    if (!pubs || pubs.length === 0) throw new Error('لا يوجد relays متاحة');
+
+    return new Promise((resolve, reject) => {
+        let settledCount = 0;
+        let done = false;
+        const reasons = [];
+        const total = pubs.length;
+
+        const safetyTimer = setTimeout(() => {
+            if (done) return;
+            done = true;
+            reject(new Error('لم يستجب أي relay في الوقت المناسب، حاول تاني'));
+        }, 10000);
+
+        pubs.forEach(p => {
+            Promise.resolve(p).then(() => {
+                settledCount++;
+                if (done) return;
+                done = true;
+                clearTimeout(safetyTimer);
+                resolve(settledCount);
+            }).catch(err => {
+                reasons.push((err?.message || err || '').toString());
+                settledCount++;
+                if (done) return;
+                if (settledCount === total) {
+                    done = true;
+                    clearTimeout(safetyTimer);
+                    reject(new Error(reasons.filter(Boolean).join(' | ') || 'لم يقبل أي relay هذا الحدث'));
+                }
+            });
+        });
+    });
+
 }
 
 // ============================
