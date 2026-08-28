@@ -1,11 +1,27 @@
-const CACHE_NAME = 'pulse-v5';
+const CACHE_NAME = 'pulse-v6';
 const BASE = self.registration.scope; // بيتحسب تلقائي حسب مكان السكربت
 
+// 🛠️ app.js القديم اتقسّم لـ 13 ملف (شوف README) وده كان لسه متسجل هنا
+// لوحده، فكان بيسبب فشل cache.addAll() بالكامل بصمت (لأن الملف ده بقى
+// راجع 404) — يعني التطبيق ما كانش بيعمل precache لأي حاجة عند أول تثبيت،
+// وكان معتمد بس على الـ cache التدريجي جوه 'fetch' تحت.
 const ASSETS = [
   BASE,
   BASE + 'index.html',
-  BASE + 'app.js',
   BASE + 'manifest.json',
+  BASE + 'config.js',
+  BASE + 'state.js',
+  BASE + 'utils.js',
+  BASE + 'auth.js',
+  BASE + 'registration.js',
+  BASE + 'profile.js',
+  BASE + 'algorithm.js',
+  BASE + 'media.js',
+  BASE + 'posts.js',
+  BASE + 'reactions.js',
+  BASE + 'rooms.js',
+  BASE + 'ui.js',
+  BASE + 'main.js',
   BASE + 'icons/icon-192.png',
   BASE + 'icons/icon-512.png',
   BASE + 'icons/icon-maskable-512.png'
