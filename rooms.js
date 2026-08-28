@@ -56,6 +56,11 @@ async function joinRoom(roomName) {
         peer = new Peer(myPeerId, {
             config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
         });
+        // ✅ لازم نسمع لحدث 'call' عشان نرد على مكالمات المشاركين
+        // التانيين. من غيرها، الطرف اللي بيدخل الغرفة بيتصل بيه الناس
+        // الموجودين بالفعل (عن طريق connectToPeer)، بس هو نفسه ما بيردش
+        // على أي مكالمة واردة — يعني محدش كان بيسمع حد فعليًا.
+        peer.on('call', handleIncomingCall);
         await new Promise((resolve, reject) => {
             peer.on('open', resolve);
             peer.on('error', reject);
