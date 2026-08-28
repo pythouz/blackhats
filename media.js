@@ -40,7 +40,11 @@ function renderMediaContent(content) {
         /(https?:\/\/[^\s<>"']+\.(jpe?g|png|gif|webp|svg|bmp|ico)(\?[^\s<>"']*)?)/gi,
         (match) => {
             const safeUrl = match.replace(/&/g, '&amp;');
-            return stash(`<img src="${safeUrl}" alt="صورة" class="max-w-full rounded-xl my-2 max-h-[500px] object-contain border border-gray-200 dark:border-gray-700 shadow-sm cursor-pointer" loading="lazy" onclick="window.open('${safeUrl}', '_blank')" onerror="this.style.display='none'" />`);
+            // ⚠️ أمان: ما بنستخدمش onclick هنا خالص (حتى لو الرابط نفسه آمن)،
+            // لأن onclick لازم يفضل غير مسموح في DOMPurify. اللينك بيتحط في
+            // data-lightbox وبيتفتح عن طريق مستمع أحداث مفوّض (event
+            // delegation) في ui.js — مش عن طريق attribute جوه الـ HTML.
+            return stash(`<img src="${safeUrl}" alt="صورة" class="lightbox-img max-w-full rounded-xl my-2 max-h-[500px] object-contain border border-gray-200 dark:border-gray-700 shadow-sm cursor-pointer" loading="lazy" data-lightbox="${safeUrl}" onerror="this.style.display='none'" />`);
         }
     );
 
@@ -71,10 +75,31 @@ function renderMediaContent(content) {
 
     if (typeof DOMPurify !== 'undefined') {
         html = DOMPurify.sanitize(html, {
+            // ⚠️ أمان مهم جدًا: onclick اتشال من هنا نهائيًا. محتوى البوست
+            // ده جاي من أي حد على شبكة Nostr (مش بس مستخدمي التطبيق ده)،
+            // فلو سمحنا بـ onclick هنا أي حد يقدر ينشر مثلاً
+            // <img src=x onclick="..."> وأي كود جافاسكريبت بتاعه هيتنفذ
+            // في متصفح أي حد يضغط على الصورة — بما فيه سرقة الـ nsec
+            // المخزن في localStorage. لو محتجين تفاعل زي فتح الصورة في
+            // نافذة جديدة، استخدم data-attribute + event delegation
+            // (زي lightbox-img/data-lightbox تحت) مش onclick داخل الـ HTML.
             ALLOWED_TAGS: ['img', 'video', 'iframe', 'a', 'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'span', 'div'],
-            ALLOWED_ATTR: ['src', 'alt', 'class', 'onclick', 'controls', 'preload', 'playsinline', 'href', 'target', 'rel', 'frameborder', 'allowfullscreen', 'loading', 'width', 'height', 'style']
+            ALLOWED_ATTR: ['src', 'alt', 'class', 'data-lightbox', 'controls', 'preload', 'playsinline', 'href', 'target', 'rel', 'frameborder', 'allowfullscreen', 'loading', 'width', 'height', 'style']
         });
     }
 
     return html;
 }
+
+// ============================
+// Lightbox: فتح صورة البوست في تاب جديد
+// ============================
+// بنستخدم مستمع أحداث مفوّض (event delegation) على document بدل onclick
+// جوه الـ HTML، عشان نقدر نشيل onclick تمامًا من قائمة DOMPurify المسموحة
+// (شوف renderMediaContent فوق) من غير ما نخسر خاصية فتح الصورة.
+document.addEventListener('click', (e) => {
+    const img = e.target.closest('.lightbox-img');
+    if (!img) return;
+    const url = img.dataset.lightbox;
+    if (url) window.open(url, '_blank');
+});
