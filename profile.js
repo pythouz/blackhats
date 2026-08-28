@@ -697,6 +697,7 @@ function loadProfilePosts(pubkey, until) {
         onevent: (event) => {
             if (event.kind === 5) return;
             if (bannedPubkeys.has(event.pubkey)) return;
+            if (tombstonedEvents.has(event.id)) return;
             // تعليق على منشور شخص تاني (فيه tag نوعه 'e') مش منشور مستقل،
             // فمش المفروض يظهر في صفحة البروفايل كأنه بوست.
             if (isReplyEvent(event)) return;
