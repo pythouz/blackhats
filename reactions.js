@@ -226,6 +226,28 @@ function handleDeleteEvent(event) {
     const targetId = getTagValue(event.tags, 'e');
     if (!targetId) return;
 
+    // 🛠️ (دمج) الدالة دي كانت متعرّفة بنفس الاسم في posts.js وهنا في
+    // reactions.js. بما إن الاتنين سكريبتات عادية بتشارك نفس الـ scope
+    // العام، ونسخة reactions.js (اللي بتتحمّل بعد posts.js) كانت بتلغي
+    // نسخة posts.js تمامًا — فمنطق "شيل البوست من الشاشة لما يتحذف" في
+    // posts.js كان أصلاً مبيتنفذش خالص. دمجنا المنطقين هنا في نسخة واحدة
+    // بتتعامل مع الحالتين: حذف بوست، وحذف لايك.
+
+    // الحالة 1: التارجت بوست ظاهر عندنا في الشاشة دلوقتي → شيله (بس لو
+    // اللي بعت حدث الحذف هو نفسه صاحب البوست، عشان محدش يقدر "يحذف" بوست
+    // شخص تاني من شاشة الآخرين).
+    if (renderedPosts.has(targetId)) {
+        const card = getPostCard(targetId);
+        if (card && card.dataset.pubkey === event.pubkey) removePostFromUI(targetId);
+        return;
+    }
+
+    // نتابع أي eventId اتحذف حتى لو مالوش علاقة بلايك، عشان لو رجع تاني
+    // (مثلاً relay قديم لسه راجع البوست ده) نعرف نتجاهله.
+    tombstonedEvents.add(targetId);
+    limitSet(tombstonedEvents, MAX_SEEN_EVENTS);
+
+    // الحالة 2: التارجت حدث لايك (kind 7) اتحذف
     const info = likeEventIndex.get(targetId);
     if (!info) {
         return;
