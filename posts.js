@@ -24,7 +24,7 @@ function startFeed() {
                     handleIncomingReply(event);
                     return;
                 }
-                if (seenEvents.has(event.id)) return;
+                if (seenEvents.has(event.id) || tombstonedEvents.has(event.id)) return;
                 seenEvents.add(event.id);
                 limitSet(seenEvents, MAX_SEEN_EVENTS);
 
@@ -144,7 +144,13 @@ async function deletePost(postId) {
     if (!pk) { showToast('لا توجد هوية', 'error'); return; }
     if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
     try {
-        const event = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', postId]], content: '' });
+        // 🛠️ لازم نحط تاج ['t', APP_TAG] على حدث الحذف نفسه، لأن اشتراك
+        // الفيد (startFeed / loadMorePosts) بيطلب kinds:[1,5] مع
+        // '#t': [APP_TAG] مع بعض. من غير التاج ده، الـ relay (لو ملتزم
+        // بالمعيار زي damus/nos.lol) مش هيوصّل حدث الحذف خالص لأي حد
+        // تاني بيتابع الفيد، وبالتالي البوست مش هيختفي من شاشتهم إلا
+        // بعد Refresh يدوي.
+        const event = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', postId], ['t', APP_TAG]], content: '' });
         await publishToRelays(event);
         removePostFromUI(postId);
         showToast('تم حذف المنشور', 'success');
@@ -153,32 +159,11 @@ async function deletePost(postId) {
     }
 }
 
-function handleDeleteEvent(event) {
-    const targetId = getTagValue(event.tags, 'e');
-    if (!targetId) return;
-    if (renderedPosts.has(targetId)) {
-        const card = getPostCard(targetId);
-        if (card && card.dataset.pubkey === event.pubkey) removePostFromUI(targetId);
-        return;
-    }
-
-    tombstonedEvents.add(targetId);
-    limitSet(tombstonedEvents, MAX_SEEN_EVENTS);
-    const info = likeEventIndex.get(targetId);
-    if (!info) return;
-    likeEventIndex.delete(targetId);
-
-    const likers = postLikers.get(info.postId);
-    if (!likers || likers.get(info.pubkey) !== targetId) return;
-    likers.delete(info.pubkey);
-
-    const postStat = postStats.get(info.postId);
-    if (!postStat) return;
-    if (info.pubkey === pk) postStat.myLikeEventId = null;
-    updatePostScore(info.postId);
-    syncLikeCountUI(info.postId);
-    if (info.pubkey === pk) updateLikeUI(info.postId, false);
-}
+// ملاحظة: handleDeleteEvent اتنقلت وانضمّت في reactions.js (كانت متعرّفة
+// هنا كمان بنفس الاسم، وبما إن reactions.js بيتحمّل بعد الملف ده، نسخته
+// كانت بتلغي النسخة دي بالكامل بصمت — يعني الكود اللي كان بيشيل البوست من
+// الشاشة لما يتحذف كان أصلاً مبيتنفذش خالص. المنطق اتدمج في نسخة واحدة
+// جوه reactions.js عشان نتجنب تضارب الأسماء ده تاني.
 
 function removePostFromUI(postId) {
     const card = getPostCard(postId);
@@ -289,7 +274,9 @@ async function confirmEdit() {
 
     const oldPostId = editingPostId;
     try {
-        const deleteEvent = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', oldPostId]], content: '' });
+        // نفس ملاحظة deletePost فوق: لازم تاج ['t', APP_TAG] عشان حدث
+        // الحذف يوصل فعليًا لباقي المتابعين عبر اشتراك الفيد.
+        const deleteEvent = await signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [['e', oldPostId], ['t', APP_TAG]], content: '' });
         await publishToRelays(deleteEvent);
 
         const newEvent = await signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [['t', APP_TAG]], content: newContent });
@@ -457,7 +444,7 @@ async function loadMorePosts() {
         }
         if (oldest === Infinity) { loadingMore = false; if (spinner) spinner.classList.add('hidden'); return; }
 
-        const sub = pool.subscribeMany(RELAYS, [{ kinds: [1], '#t': [APP_TAG], until: oldest, limit: 100 }], {
+        const sub = pool.subscribeMany(RELAYS, [{ kinds: [1, 5], '#t': [APP_TAG], until: oldest, limit: 100 }], {
             onevent: event => {
                 if (!event?.id) return;
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
@@ -466,7 +453,7 @@ async function loadMorePosts() {
                     return;
                 }
                 if (bannedPubkeys.has(event.pubkey)) return;
-                if (seenEvents.has(event.id)) return;
+                if (seenEvents.has(event.id) || tombstonedEvents.has(event.id)) return;
                 seenEvents.add(event.id);
                 initPostState(event.id, event.created_at);
                 updatePostScore(event.id);
