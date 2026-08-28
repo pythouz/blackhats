@@ -246,10 +246,13 @@ async function loginWithNip07() {
         secretKeyHex = null;
         updateIdentityUI();
         hideAuthGate();
-        // فحص الصلاحيات ثم فتح
+        // فحص الصلاحيات ثم فتح. لو الوصول مرفوض، initAccessControl() نفسها
+        // بتعرض الشاشة الصح (بوابة التسجيل أو "قيد المراجعة")، فمفيش داعي
+        // لدالة تانية هنا (كانت showAccessDenied() اللي أصلاً مش متعرّفة
+        // في أي مكان في الكود، وكانت بتسبب خطأ في الـ console كل مرة
+        // مستخدم NIP-07 يتم رفضه).
         initAccessControl().then(access => {
             if (access) unlockApp();
-            else showAccessDenied();
         });
     } catch (e) {
         showToast('فشل تسجيل الدخول عبر NIP-07: ' + getErrorMessage(e), 'error');
