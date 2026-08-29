@@ -69,6 +69,43 @@ function getTagValue(tags, key) {
 }
 
 // ============================
+// (أمان) Rate limiting بسيط على أفعال النشر
+// ============================
+// بيمنع حالتين: (1) دبل-كليك بالغلط يبقى بوست/رد/لايك متكرر، و(2) إغراق
+// الـ relays الأربعة بعدد كبير من الطلبات في وقت قصير — سبام مقصود أو
+// سكربت خارجي بيستدعي الدوال دي مباشرة. أغلب الـ relays (damus/nos.lol/
+// nostr.band) بتحظر أو تعمل throttle للاتصال كله مؤقتًا لو حسّت بسلوك
+// زي ده، فده بيحمي التطبيق من إنه يوقّف نفسه بنفسه.
+const rateLimitState = new Map(); // actionKey -> [timestamps بالمللي ثانية]
+
+/**
+ * @param {string} actionKey معرف الفعل، مثلاً 'publishPost'
+ * @param {number} minGapMs أقل فاصل زمني مسموح بين فعلين من نفس النوع
+ * @param {number} maxInWindow أقصى عدد مرات مسموحة جوه النافذة الزمنية
+ * @param {number} windowMs مدة النافذة الزمنية بالمللي ثانية
+ * @returns {boolean} true لو الفعل مسموح ينفّذ، false لو لازم يتمنع (وبيعرض toast تلقائيًا)
+ */
+function checkRateLimit(actionKey, minGapMs, maxInWindow, windowMs) {
+    const now = Date.now();
+    let timestamps = (rateLimitState.get(actionKey) || []).filter(t => now - t < windowMs);
+
+    if (timestamps.length && now - timestamps[timestamps.length - 1] < minGapMs) {
+        rateLimitState.set(actionKey, timestamps);
+        showToast('برجاء الانتظار لحظة قبل المحاولة تاني', 'error');
+        return false;
+    }
+    if (timestamps.length >= maxInWindow) {
+        rateLimitState.set(actionKey, timestamps);
+        showToast('وصلت للحد المسموح من المحاولات، حاول تاني بعد شوية', 'error');
+        return false;
+    }
+
+    timestamps.push(now);
+    rateLimitState.set(actionKey, timestamps);
+    return true;
+}
+
+// ============================
 // نشر حدث على الـ relays مع تأكيد فعلي
 // ============================
 // ⚠️ مهم جدًا: pool.publish(RELAYS, event) بيرجّع Array من الـ Promises
