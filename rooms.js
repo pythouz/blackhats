@@ -154,8 +154,16 @@ function listenForPeers(roomName) {
         try { roomSubscription.close(); } catch(e) {}
     }
 
+    // (أداء) الاشتراك ده بيتكرر كل 5 ثواني طول ما إحنا في الغرفة. من غير
+    // 'since'، كل مرة كان بيطلب من الـ relays *كل* أحداث join/leave اللي
+    // اتنشرت تحت التاج ده من الأول — رغم إن حضور الغرفة نفسه صلاحيته
+    // ROOM_PRESENCE_TTL_MS (90 ثانية) بس ومبيتفلترش محليًا إلا لو أحدث من
+    // كده. بنحط since بهامش أمان (ضعف مدة الصلاحية) عشان نضمن مفيش فجوة
+    // ونقلل حجم البيانات المطلوبة في كل دورة بشكل كبير.
+    const since = Math.floor(Date.now() / 1000) - Math.ceil((ROOM_PRESENCE_TTL_MS / 1000) * 2);
+
     roomSubscription = pool.subscribeMany(RELAYS, [
-        { kinds: [ROOM_EVENT_KIND], '#t': [roomName] }
+        { kinds: [ROOM_EVENT_KIND], '#t': [roomName], since }
     ], {
         onevent: (event) => {
             if (event.pubkey === pk) return;
@@ -316,8 +324,14 @@ function startRoomDirectory() {
         try { directorySubscription.close(); } catch(e) {}
     }
 
+    // (أداء) زي listenForPeers بالظبط — الاشتراك ده بيتكرر كل 10 ثواين
+    // (شوف oneose تحت)، وأحداث الحضور صلاحيتها ROOM_PRESENCE_TTL_MS بس.
+    // من غير since كان بيجيب أقدم 100 حدث من كل تاريخ الشبكة في كل دورة،
+    // وأغلبها بيترفض فورًا محليًا في فحص age تحت لأنه أصلاً قديم.
+    const since = Math.floor(Date.now() / 1000) - Math.ceil((ROOM_PRESENCE_TTL_MS / 1000) * 2);
+
     directorySubscription = pool.subscribeMany(RELAYS, [
-        { kinds: [ROOM_EVENT_KIND], limit: 100 }
+        { kinds: [ROOM_EVENT_KIND], limit: 100, since }
     ], {
         onevent: (event) => {
             const roomName = getTagValue(event.tags, 't');
