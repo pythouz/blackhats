@@ -13,9 +13,11 @@ function startFeed() {
     if (loading) loading.classList.remove('hidden');
 
     try {
+        let batchCount = 0;
         postsSubscription = pool.subscribeMany(RELAYS, [{ kinds: [1, 5], limit: INITIAL_FEED_LIMIT, '#t': [APP_TAG] }], {
             onevent: event => {
                 if (!event?.id) return;
+                batchCount++;
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
                 const hasTag = event.tags?.some(t => t[0] === 't' && t[1] === APP_TAG);
                 if (!hasTag) return;
@@ -38,9 +40,10 @@ function startFeed() {
             oneose: () => {
                 console.log('[Feed] تم التحميل الأولي');
                 if (loading) loading.classList.add('hidden');
+                feedReady = true;
                 processAllPendingReplies();
                 startReactionSubscription();
-                updateLoadMoreButton();
+                updateLoadMoreButton(batchCount >= INITIAL_FEED_LIMIT);
             },
             onclose: () => console.log('[Feed] اشتراك أغلق')
         });
@@ -127,7 +130,12 @@ function renderPost(event) {
     `;
 
     renderedPosts.set(event.id, div);
-    fetchLikesForNewPost(event.id);
+    // (أداء) وقت التحميل الأولي أو "تحميل المزيد" بيوصلوا عشرات/مئات
+    // البوستات دفعة واحدة — مفيش داعي نفتح subscription لايكات منفصل
+    // لكل واحد منهم لوحده، لأن fetchPastLikesAndDeletes هتجمّعهم كلهم
+    // في طلبات مجمّعة بعد الدفعة. غير كده (بوست جديد حقيقي)، بنجيب
+    // لايكاته لوحده زي ما كان الحال.
+    if (feedReady && !loadingMore) fetchLikesForNewPost(event.id);
     limitMap(renderedPosts, MAX_RENDERED_POSTS);
     insertPostCard(div);
     fetchProfiles([event.pubkey]);
@@ -176,6 +184,7 @@ function removePostFromUI(postId) {
         seenEvents.delete(postId);
         postLikers.delete(postId);
         pendingRepliesMap.delete(postId);
+        pastLikesFetchedPostIds.delete(postId);
     }
 }
 
@@ -415,14 +424,17 @@ async function publishPost() {
 // 18. تحميل المزيد
 // ============================
 
-function updateLoadMoreButton() {
+function updateLoadMoreButton(hasMore) {
     const container = $('load-more-container');
     if (!container) return;
-    if (renderedPosts.size >= MAX_RENDERED_POSTS) {
-        container.classList.remove('hidden');
-    } else {
-        container.classList.add('hidden');
-    }
+    // 🛠️ الشرط القديم كان بيوّري الزرار بس لما renderedPosts.size يوصل
+    // MAX_RENDERED_POSTS (500) — يعني عمليًا الزرار ما كانش بيظهر إلا
+    // بعد ما مئات البوستات الحية تتراكم، وده كان بيمنع الوصول لأي بوستات
+    // قديمة تقريبًا في أغلب الجلسات العادية. الصح إننا نوّري الزرار لو
+    // آخر دفعة جبناها من الـ relay كانت "كاملة" (وصلت لعدد الـ limit
+    // المطلوب) — ده اللي بيدل على احتمال وجود بوستات أقدم لسه.
+    if (hasMore) container.classList.remove('hidden');
+    else container.classList.add('hidden');
 }
 
 async function loadMorePosts() {
@@ -444,9 +456,11 @@ async function loadMorePosts() {
         }
         if (oldest === Infinity) { loadingMore = false; if (spinner) spinner.classList.add('hidden'); return; }
 
+        let batchCount = 0;
         const sub = pool.subscribeMany(RELAYS, [{ kinds: [1, 5], '#t': [APP_TAG], until: oldest, limit: 100 }], {
             onevent: event => {
                 if (!event?.id) return;
+                batchCount++;
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
                 if (isReplyEvent(event)) {
                     handleIncomingReply(event);
@@ -465,7 +479,7 @@ async function loadMorePosts() {
             oneose: () => {
                 loadingMore = false;
                 if (spinner) spinner.classList.add('hidden');
-                updateLoadMoreButton();
+                updateLoadMoreButton(batchCount >= 100);
                 processAllPendingReplies();
             },
             onclose: () => { loadingMore = false; if (spinner) spinner.classList.add('hidden'); }
