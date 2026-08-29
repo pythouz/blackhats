@@ -17,7 +17,11 @@ const MAX_RENDERED_POSTS = 500;
 const MAX_DISCOVERED_ROOMS = 50;
 const DISCOVERY_TAG = APP_TAG + ':room-directory';
 const ROOM_PRESENCE_TTL_MS = 90 * 1000;
-const INITIAL_FEED_LIMIT = 300;
+// (أداء) كان 300 — تحميل 300 بوست + كل تفاعلاتهم مرة واحدة وقت فتح
+// التطبيق كان بيبطّئ أول ظهور وبيحمّل الشبكة بيانات مش لازمة فورًا.
+// زر "تحميل المزيد" أصلاً موجود ويجيب باقي البوستات القديمة عند الحاجة،
+// فتقليل الرقم ده بيسرّع أول تحميل من غير ما نخسر أي بوست.
+const INITIAL_FEED_LIMIT = 50;
 
 const ADMIN_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf982l';
 
