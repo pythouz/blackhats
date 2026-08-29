@@ -34,7 +34,7 @@ function startFeed() {
                 updatePostScore(event.id);
                 postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
                 renderPost(event);
-                reorderFeed();
+                scheduleReorderFeed();
                 scheduleReactionResubscribe();
             },
             oneose: () => {
@@ -151,6 +151,7 @@ function renderPost(event) {
 async function deletePost(postId) {
     if (!pk) { showToast('لا توجد هوية', 'error'); return; }
     if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+    if (!checkRateLimit('deletePost', 1000, 15, 5 * 60 * 1000)) return;
     try {
         // 🛠️ لازم نحط تاج ['t', APP_TAG] على حدث الحذف نفسه، لأن اشتراك
         // الفيد (startFeed / loadMorePosts) بيطلب kinds:[1,5] مع
@@ -277,6 +278,7 @@ async function confirmEdit() {
     const textarea = $('edit-input');
     const text = (textarea?.value || '').trim();
     if (!text && editAttachments.length === 0) { showToast('المحتوى لا يمكن أن يكون فارغاً', 'error'); return; }
+    if (!checkRateLimit('confirmEdit', 3000, 8, 5 * 60 * 1000)) return;
 
     const mediaUrls = editAttachments.map(a => a.url);
     const newContent = [text, ...mediaUrls].filter(Boolean).join('\n');
@@ -389,6 +391,7 @@ async function publishPost() {
     const text = (input.value || '').trim();
     if (!text && pendingAttachments.length === 0) { showToast('اكتب شيئًا أو أرفق صورة/فيديو قبل النشر', 'error'); return; }
     if (text.length > 4000) { showToast('النص طويل جدًا', 'error'); return; }
+    if (!checkRateLimit('publishPost', 3000, 8, 5 * 60 * 1000)) return;
 
     const mediaUrls = pendingAttachments.map(a => a.url);
     const content = [text, ...mediaUrls].filter(Boolean).join('\n');
@@ -473,7 +476,7 @@ async function loadMorePosts() {
                 updatePostScore(event.id);
                 postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
                 renderPost(event);
-                reorderFeed();
+                scheduleReorderFeed();
                 scheduleReactionResubscribe();
             },
             oneose: () => {
