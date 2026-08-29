@@ -64,6 +64,22 @@ function scheduleReactionResubscribe() {
     }, 700);
 }
 
+// (أداء) reorderFeed() بتعمل querySelectorAll + sort + إعادة ترتيب DOM
+// لكل بوستات الفيد مرة واحدة — شغل مقبول لما تتنادى مرة واحدة، لكن لو
+// اتنادت لكل بوست لوحده أثناء دفعة كبيرة (تحميل أولي/تحميل المزيد) بقى
+// عندنا عمليًا إعادة ترتيب كاملة للـ DOM بعدد البوستات، بينما إحنا محتاجين
+// نعملها مرة واحدة بس بعد ما الدفعة كلها توصل. نفس فكرة الـ debounce
+// المستخدمة فوق لإعادة اشتراك التفاعلات.
+let reorderFeedTimer = null;
+
+function scheduleReorderFeed() {
+    if (reorderFeedTimer) clearTimeout(reorderFeedTimer);
+    reorderFeedTimer = setTimeout(() => {
+        reorderFeedTimer = null;
+        if (typeof reorderFeed === 'function') reorderFeed();
+    }, 150);
+}
+
 // الغرف الصوتية
 const discoveredRooms = new Map();
 let directorySubscription = null;
