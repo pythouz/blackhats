@@ -137,8 +137,18 @@ function startReactionSubscription() {
     console.log('[Reactions] بدء اشتراك الإعجابات والإلغاءات لـ', postIds.length, 'بوست');
     isReactionSubscribing = true;
 
-    // جلب الإعجابات والإلغاءات السابقة
-    fetchPastLikesAndDeletes(postIds);
+    // (أداء) الدالة دي بتتكرر تلقائيًا كل 30 ثانية طول ما التطبيق مفتوح
+    // (شوف oneose تحت). قبل كده كانت بتعيد جلب "اللايكات والإلغاءات
+    // السابقة" لكل البوستات من الصفر في كل دورة — حتى لو محدش عمل
+    // لايك جديد من آخر مرة. دلوقتي بنجيب بس البوستات اللي لسه ما
+    // جبناش لها لايكات قديمة قبل كده؛ الباقي بيتغطى أصلاً عن طريق
+    // الاشتراك اللايف تحت.
+    const newPostIds = postIds.filter(id => !pastLikesFetchedPostIds.has(id));
+    if (newPostIds.length) {
+        fetchPastLikesAndDeletes(newPostIds);
+        newPostIds.forEach(id => pastLikesFetchedPostIds.add(id));
+        limitSet(pastLikesFetchedPostIds, MAX_SEEN_EVENTS);
+    }
 
     // فلتر kind 5 لازم يتحدد بـ authors بدل ما يبقى مفتوح تمامًا،
     // لأن أغلب الـ relays (damus/nos.lol/nostr.band) بترفض أو بتـ rate-limit
