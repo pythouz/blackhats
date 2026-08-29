@@ -20,6 +20,10 @@ async function likePost(postId, postPubkey) {
     if (likeInFlight.has(postId)) return; // في عملية شغالة بالفعل على نفس البوست، تجاهل
     const stat = postStats.get(postId);
     if (!stat) { showToast('المنشور غير موجود', 'error'); return; }
+    // likeInFlight فوق بيمنع الدبل-كليك على نفس البوست بس، مش لايك سريع
+    // متكرر على عدة بوستات مختلفة (سكربت مثلاً). الحد هنا سخي لأن اللايك
+    // فعل خفيف ومتوقع يتكرر بسرعة في الاستخدام العادي.
+    if (!checkRateLimit('likePost', 150, 30, 60 * 1000)) return;
 
     const likers = postLikers.get(postId) || new Map();
     const existingLikeId = likers.get(pk);
@@ -390,6 +394,7 @@ async function confirmReply() {
     const input = $('reply-input');
     const text = (input?.value || '').trim();
     if (!text) { showToast('اكتب رداً', 'error'); return; }
+    if (!checkRateLimit('confirmReply', 2000, 15, 5 * 60 * 1000)) return;
 
     const { postId, postPubkey, parentId } = replyTarget;
     const tags = [
