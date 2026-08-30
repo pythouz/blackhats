@@ -138,3 +138,13 @@ const followCountsCache = new Map(); // pubkey -> { following, followers }
 // — من غير حماية، ده كان بيعرض نفس الرد مرتين. seenReplies بتضمن إن
 // كل event.id يتعالج مرة واحدة بس.
 const seenReplies = new Set();
+
+// ============================
+// (فيتشر جديد) الإشعارات — لايكات وردود على منشوراتك
+// ============================
+// كل عنصر: { id, type: 'like'|'reply', postId, fromPubkey, createdAt, read }
+// الأحدث أول العنصر (unshift عند الإضافة).
+let notifications = [];
+let unreadNotifCount = 0;
+const seenNotifIds = new Set();
+let notificationsSubscription = null;
