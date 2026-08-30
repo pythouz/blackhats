@@ -105,6 +105,7 @@ function unlockApp() {
     loadMyProfile();
     startFeed();
     startRoomDirectory();
+    startNotificationsSubscription();
 
     const savedView = localStorage.getItem('pulse_view') || 'timeline';
     switchView(savedView);
