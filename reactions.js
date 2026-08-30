@@ -545,6 +545,165 @@ function toggleReplies(postId) {
 }
 
 // ============================
+// (فيتشر جديد) الإشعارات — لايكات وردود موجّهة إليك
+// ============================
+// likePost و confirmReply فوق بيحطوا تاج ['p', <صاحب المنشور/التعليق>]
+// دايمًا على أي لايك أو رد. ده بيدينا استعلام مباشر وموفّر عن أي تفاعل
+// موجّه ليك تحديدًا (kinds:[1,7] مع '#p':[pk])، بدل ما نراقب كل بوست في
+// الفيد لوحده.
+
+function notifStorageKey() {
+    return 'pulse_notifications_' + (pk || 'anon');
+}
+
+function loadNotifState() {
+    try {
+        const raw = localStorage.getItem(notifStorageKey());
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        notifications.forEach(n => seenNotifIds.add(n.id));
+        unreadNotifCount = notifications.filter(n => !n.read).length;
+    } catch (e) { /* لا يوجد شيء محفوظ، أو تعذّرت القراءة — نبدأ فاضي */ }
+}
+
+function saveNotifState() {
+    try {
+        localStorage.setItem(notifStorageKey(), JSON.stringify({ notifications: notifications.slice(0, 100) }));
+    } catch (e) { /* مساحة التخزين ممتلئة — مش خطير، هيفضل شغال بالذاكرة بس */ }
+}
+
+function startNotificationsSubscription() {
+    if (!pk) return;
+    if (!notifications.length) loadNotifState();
+    renderNotifBadge();
+
+    if (notificationsSubscription) {
+        try { notificationsSubscription.close(); } catch (e) {}
+    }
+
+    // أول مرة (مفيش إشعارات محفوظة قبل كده) بنجيب آخر أسبوع بس، عشان
+    // منغرقش بتاريخ قديم أول ما الفيتشر يتفعّل على حساب حد قديم.
+    const lastKnown = notifications.length ? notifications[0].createdAt : 0;
+    const since = lastKnown || (Math.floor(Date.now() / 1000) - 7 * 24 * 3600);
+
+    notificationsSubscription = pool.subscribeMany(RELAYS, [
+        { kinds: [1, 7], '#p': [pk], since }
+    ], {
+        onevent: (event) => {
+            if (event.pubkey === pk) return; // تفاعلك انت مع نفسك مش إشعار
+            if (bannedPubkeys.has(event.pubkey)) return;
+            if (seenNotifIds.has(event.id)) return;
+            seenNotifIds.add(event.id);
+            limitSet(seenNotifIds, MAX_SEEN_EVENTS);
+            addNotification(event);
+        },
+        oneose: () => {
+            setTimeout(startNotificationsSubscription, 60000); // تجديد دوري زي باقي اشتراكات التطبيق
+        },
+        onclose: () => {
+            setTimeout(startNotificationsSubscription, 15000);
+        }
+    });
+}
+
+function addNotification(event) {
+    const type = event.kind === 7 ? 'like' : 'reply';
+    let postId;
+    if (type === 'like') {
+        postId = getTagValue(event.tags, 'e');
+    } else {
+        const rootTag = event.tags.find(t => t[0] === 'e' && t[3] === 'root');
+        postId = rootTag ? rootTag[1] : getTagValue(event.tags, 'e');
+    }
+    if (!postId) return;
+
+    notifications.unshift({ id: event.id, type, postId, fromPubkey: event.pubkey, createdAt: event.created_at, read: false });
+    if (notifications.length > 100) notifications.length = 100;
+    unreadNotifCount++;
+    saveNotifState();
+    renderNotifBadge();
+    fetchProfiles([event.pubkey]);
+
+    const panel = $('notifications-panel');
+    if (panel && !panel.classList.contains('hidden')) renderNotificationsPanel();
+}
+
+function renderNotifBadge() {
+    const badge = $('notif-badge');
+    if (!badge) return;
+    if (unreadNotifCount > 0) {
+        badge.textContent = unreadNotifCount > 99 ? '99+' : String(unreadNotifCount);
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+function relativeTimeAr(timestampSec) {
+    const diff = Math.max(0, Math.floor(Date.now() / 1000) - timestampSec);
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return `منذ ${Math.floor(diff / 60)} د`;
+    if (diff < 86400) return `منذ ${Math.floor(diff / 3600)} س`;
+    return `منذ ${Math.floor(diff / 86400)} يوم`;
+}
+
+function renderNotificationsPanel() {
+    const list = $('notifications-list');
+    if (!list) return;
+
+    if (!notifications.length) {
+        list.innerHTML = '<p class="text-center text-gray-400 text-sm py-10">مفيش إشعارات لسه</p>';
+        return;
+    }
+
+    list.innerHTML = notifications.map(n => {
+        const name = escapeHtml(getDisplayName(n.fromPubkey));
+        const verb = n.type === 'like' ? 'أعجب بمنشورك' : 'ردّ عليك';
+        const icon = n.type === 'like' ? 'fa-heart text-red-500' : 'fa-comment text-accent';
+        return `
+            <button onclick="openNotification('${n.postId}')"
+                    class="w-full flex items-center gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60 ${n.read ? '' : 'bg-accent/5 dark:bg-accent/10'}">
+                <div class="flex-shrink-0">${avatarHtml(n.fromPubkey, 'w-10 h-10 text-sm')}</div>
+                <div class="flex-1 min-w-0 text-sm">
+                    <p class="dark:text-white"><span class="font-bold">${name}</span> ${verb}</p>
+                    <p class="text-xs text-gray-400 mt-0.5">${relativeTimeAr(n.createdAt)}</p>
+                </div>
+                <i class="fas ${icon} text-sm flex-shrink-0"></i>
+            </button>
+        `;
+    }).join('');
+}
+
+function markAllNotificationsRead() {
+    if (!unreadNotifCount) return;
+    notifications.forEach(n => n.read = true);
+    unreadNotifCount = 0;
+    saveNotifState();
+    renderNotifBadge();
+}
+
+function toggleNotificationsPanel() {
+    const panel = $('notifications-panel');
+    if (!panel) return;
+    const isHidden = panel.classList.contains('hidden');
+    if (isHidden) {
+        renderNotificationsPanel();
+        panel.classList.remove('hidden');
+        // بنستنى شوية قبل ما نعلّم الكل "مقروء"، عشان المستخدم ياخد
+        // فرصة يشوف إيه اللي كان جديد قبل ما التمييز يختفي.
+        setTimeout(() => { markAllNotificationsRead(); renderNotificationsPanel(); }, 1200);
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function openNotification(postId) {
+    toggleNotificationsPanel();
+    scrollToPost(postId);
+}
+
+// ============================
 // ربط الدوال عالمياً
 // ============================
 
@@ -563,3 +722,6 @@ window.replyToComment = replyToComment;
 window.confirmReply = confirmReply;
 window.closeReplyModal = closeReplyModal;
 window.toggleReplies = toggleReplies;
+window.startNotificationsSubscription = startNotificationsSubscription;
+window.toggleNotificationsPanel = toggleNotificationsPanel;
+window.openNotification = openNotification;
