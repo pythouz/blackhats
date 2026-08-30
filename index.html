@@ -255,7 +255,8 @@
 
             <!-- Search bar (middle) -->
             <div class="flex-1 min-w-0 relative">
-                <input id="search-input" type="text" placeholder="ابحث بمفتاح عام (npub أو hex)..."
+                <input id="search-input" type="text" placeholder="بحث بكلمة، هاشتاج، أو npub..."
+                       onkeydown="if(event.key==='Enter') searchUser()"
                        class="w-full bg-gray-100/80 dark:bg-surface/80 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:text-white">
                 <button onclick="searchUser()" class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-accent transition">
                     <i class="fas fa-search"></i>
@@ -264,6 +265,15 @@
 
             <!-- Right side: Profile avatar -->
             <div class="flex items-center gap-1.5 flex-shrink-0">
+
+                <!-- 🔔 الإشعارات: لايكات وردود على منشوراتك -->
+                <button onclick="toggleNotificationsPanel()" id="notif-bell-btn"
+                        class="relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                        title="الإشعارات">
+                    <i class="far fa-bell text-lg"></i>
+                    <span id="notif-badge"
+                          class="hidden absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">0</span>
+                </button>
 
                 <!-- Profile avatar -->
                 <button onclick="openMyProfilePage()"
@@ -275,6 +285,36 @@
             </div>
         </div>
     </header>
+
+    <!-- ========== NOTIFICATIONS PANEL ========== -->
+    <div id="notifications-panel"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-start justify-center p-4" onclick="if(event.target===this) toggleNotificationsPanel()">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 fade-in mt-16 max-h-[75vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between p-5 pb-3 shrink-0">
+                <h3 class="font-bold text-lg dark:text-white">الإشعارات</h3>
+                <button onclick="toggleNotificationsPanel()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <div id="notifications-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
+        </div>
+    </div>
+
+    <!-- ========== SEARCH RESULTS PANEL ========== -->
+    <div id="search-results-panel"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-start justify-center p-4" onclick="if(event.target===this) closeSearchResults()">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 fade-in mt-16 max-h-[75vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between p-5 pb-3 shrink-0">
+                <h3 id="search-results-title" class="font-bold text-lg dark:text-white truncate">نتائج البحث</h3>
+                <button onclick="closeSearchResults()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition shrink-0">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <div id="search-results-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
+        </div>
+    </div>
 
     <!-- ========== SETTINGS PANEL (اللوحة المنبثقة القديمة - للتوافق) ========== -->
     <div id="settings-panel"
