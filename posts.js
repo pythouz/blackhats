@@ -62,6 +62,23 @@ function getPostCard(postId) {
     return document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"]`);
 }
 
+// مشتركة بين الإشعارات ونتائج البحث — يفتح الفيد ويوصل لمكان البوست
+// ويوميّه بإطار مؤقت. لو البوست مش محمّل حاليًا (مثلاً قديم ولسه ما
+// اتحملش عن طريق "تحميل المزيد") بيوريك تنبيه بدل ما يفشل بصمت.
+function scrollToPost(postId) {
+    if (typeof switchView === 'function') switchView('timeline');
+    setTimeout(() => {
+        const card = getPostCard(postId);
+        if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.classList.add('ring-2', 'ring-accent');
+            setTimeout(() => card.classList.remove('ring-2', 'ring-accent'), 2000);
+        } else {
+            showToast('المنشور مش محمّل في الفيد الحالي', 'info');
+        }
+    }, 300);
+}
+
 function insertPostCard(card) {
     const container = $('feed-container');
     if (!container) return;
