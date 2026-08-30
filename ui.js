@@ -240,10 +240,21 @@ function searchUser() {
     if (!input) return;
     const query = input.value.trim();
     if (!query) {
-        showToast('أدخل مفتاحاً عاماً للبحث', 'info');
+        showToast('اكتب كلمة، هاشتاج، أو مفتاحاً عاماً للبحث', 'info');
         return;
     }
 
+    // مفتاح عام (npub أو hex) → نفس سلوك البحث عن مستخدم القديم
+    if (query.startsWith('npub1') || /^[0-9a-fA-F]{64}$/.test(query)) {
+        searchByPubkey(query);
+        return;
+    }
+
+    // غير كده → بحث نصي/هاشتاج في البوستات المحمّلة حاليًا في الفيد
+    searchPostsByText(query);
+}
+
+function searchByPubkey(query) {
     let pubkey = query;
     if (query.startsWith('npub1')) {
         try {
@@ -301,6 +312,77 @@ function searchUser() {
     popup.addEventListener('click', (e) => {
         if (e.target === popup) popup.remove();
     });
+}
+
+// ============================
+// (فيتشر جديد) بحث نصي/هاشتاج داخل البوستات المحمّلة حاليًا
+// ============================
+// ملاحظة مهمة: بروتوكول Nostr الأساسي (NIP-01) ما بيدعمش بحث نصي على
+// مستوى الـ relay إلا باشتراك اختياري (NIP-50) مش كل الـ relays الأربعة
+// بتاعتنا بتدعمه بنفس الشكل. عشان كده البحث هنا بيشتغل على البوستات
+// اللي أصلاً اتحمّلت في المتصفح (feed + تحميل المزيد) بدل ما يعتمد على
+// دعم غير مضمون من الـ relay — كده بيشتغل 100% في كل الحالات، بس نطاقه
+// محدود بالبوستات المحمّلة فعليًا. لو النتائج مش كافية، بننصح المستخدم
+// بزرار "تحميل المزيد" في الفيد الأول.
+function searchPostsByText(query) {
+    const needle = (query.startsWith('#') ? query.slice(1) : query).toLowerCase();
+    if (!needle) { showToast('اكتب كلمة أو هاشتاج للبحث', 'info'); return; }
+
+    const results = [];
+    for (const postId of renderedPosts.keys()) {
+        const data = postContentMap.get(postId);
+        if (!data || !data.content) continue;
+        if (data.content.toLowerCase().includes(needle)) {
+            const card = getPostCard(postId);
+            results.push({
+                postId,
+                pubkey: card?.dataset.pubkey || null,
+                content: data.content,
+                createdAt: data.created_at || 0
+            });
+        }
+    }
+    results.sort((a, b) => b.createdAt - a.createdAt);
+    renderSearchResults(query, results);
+}
+
+function renderSearchResults(query, results) {
+    const panel = $('search-results-panel');
+    const title = $('search-results-title');
+    const list = $('search-results-list');
+    if (!panel || !list) return;
+
+    if (title) title.textContent = `نتائج البحث عن "${query}"`;
+
+    if (!results.length) {
+        list.innerHTML = `
+            <p class="text-center text-gray-400 text-sm py-8 px-4 leading-relaxed">
+                مفيش نتائج في البوستات المحمّلة حاليًا. 🔍<br>
+                جرّب زرار "تحميل المزيد" أسفل الفيد الأساسي عشان نوسّع نطاق البحث لبوستات أقدم، وبعدين حاول تاني.
+            </p>`;
+    } else {
+        list.innerHTML = results.map(r => {
+            const name = r.pubkey ? escapeHtml(getDisplayName(r.pubkey)) : 'مستخدم';
+            const snippet = escapeHtml(r.content.length > 160 ? r.content.slice(0, 160) + '…' : r.content);
+            const avatar = r.pubkey ? avatarHtml(r.pubkey, 'w-9 h-9 text-sm') : '';
+            return `
+                <button onclick="closeSearchResults(); scrollToPost('${r.postId}')"
+                        class="w-full flex items-start gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                    <div class="flex-shrink-0 mt-0.5">${avatar}</div>
+                    <div class="flex-1 min-w-0 text-sm">
+                        <p class="font-bold dark:text-white">${name}</p>
+                        <p class="text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed break-words">${snippet}</p>
+                    </div>
+                </button>
+            `;
+        }).join('');
+    }
+
+    panel.classList.remove('hidden');
+}
+
+function closeSearchResults() {
+    $('search-results-panel')?.classList.add('hidden');
 }
 
 function importKeyFromHeader() {
