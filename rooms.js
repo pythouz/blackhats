@@ -74,6 +74,17 @@ async function joinRoom(roomName) {
     // بدء الاستماع للمشاركين
     listenForPeers(roomName);
 
+    // 🛠️ إعادة إعلان الحضور دوريًا (كل 45 ثانية) طول ما إحنا في الغرفة.
+    // من غيرها، إعلان حضورك بيتبعت مرة واحدة بس وقت الدخول، وأي حد يدخل
+    // الغرفة بعدك بفترة (أكتر من نافذة since في listenForPeers) مش هيلاقي
+    // إعلانك أصلاً ومش هيتصل بيك — وده اللي كان بيخلّي الاتصال محتاج
+    // ريفرش (الريفرش كان بيبعت إعلان حضور جديد بالصدفة عن طريق استعادة
+    // الغرفة، فكان بيظبط الاتصال بالغلط).
+    if (roomHeartbeatInterval) clearInterval(roomHeartbeatInterval);
+    roomHeartbeatInterval = setInterval(() => {
+        if (currentRoom) announcePresence(currentRoom).catch(() => {});
+    }, 45000);
+
     // تحديث الواجهة
     const activeUI = $('active-room-ui');
     const roomNameEl = $('current-room-name');
@@ -95,6 +106,11 @@ async function joinRoom(roomName) {
 
 async function leaveRoom() {
     if (!currentRoom) return;
+
+    // 🛠️ إلغاء المؤقتات الخلفية الأول قبل أي حاجة تانية، عشان محدش
+    // منهم يحاول يعيد تشغيل نفسه بعد ما نبدأ ننضّف.
+    if (roomHeartbeatInterval) { clearInterval(roomHeartbeatInterval); roomHeartbeatInterval = null; }
+    if (roomListenTimer) { clearTimeout(roomListenTimer); roomListenTimer = null; }
 
     // إيقاف المكالمات
     for (const [peerId, call] of activeCalls) {
@@ -119,6 +135,25 @@ async function leaveRoom() {
         });
         await publishToRelays(event);
     } catch(e) {}
+
+    // 🛠️ ده كان ناقص تمامًا: من غيره المايك فاضل شغال (مؤشر الميكروفون
+    // فاضل شغّال في المتصفح) واتصال PeerJS فاضل حي في الخلفية حتى بعد
+    // "المغادرة" ظاهريًا — وده كان بيخلّي محاولة دخول تانية (لنفس الغرفة
+    // أو غرفة مختلفة) بتستخدم كائن peer قديم ممكن يكون في حالة غريبة،
+    // فمحتاج ريفرش كامل للصفحة عشان كل حاجة تتصفّر فعليًا.
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+    if (localStream) {
+        try { localStream.getTracks().forEach(track => track.stop()); } catch(e) {}
+        localStream = null;
+    }
+    if (vadAudioContext) {
+        try { vadAudioContext.close(); } catch(e) {}
+        vadAudioContext = null;
+    }
+    myPeerId = null;
 
     currentRoom = null;
     localStorage.removeItem('active_room');
@@ -188,7 +223,13 @@ function listenForPeers(roomName) {
             }
         },
         oneose: () => {
-            setTimeout(() => listenForPeers(roomName), 5000);
+            // 🛠️ من غير الشرط ده، المؤقت ده كان فاضل شغال للأبد حتى بعد
+            // ما تعمل "مغادرة" — بيفتح اشتراك جديد كل 5 ثواني في الخلفية
+            // لغرفة سبت منها، وده جزء من سبب إن "الخروج" كان محتاج ريفرش
+            // فعلي عشان يتم فعلاً.
+            roomListenTimer = setTimeout(() => {
+                if (currentRoom === roomName) listenForPeers(roomName);
+            }, 5000);
         }
     });
 }
@@ -285,9 +326,9 @@ function toggleMute() {
 function startVAD() {
     // VAD بسيط - تغيير لون المؤشر عند الكلام
     if (!localStream) return;
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(localStream);
-    const analyser = audioContext.createAnalyser();
+    vadAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = vadAudioContext.createMediaStreamSource(localStream);
+    const analyser = vadAudioContext.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
     const dataArray = new Uint8Array(analyser.fftSize);
