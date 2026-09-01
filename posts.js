@@ -59,7 +59,35 @@ function isReplyEvent(event) {
 }
 
 function getPostCard(postId) {
-    return document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"]`);
+    return pickVisibleMatch(document.querySelectorAll(`.post-card[data-post-id="${CSS.escape(postId)}"]`));
+}
+
+// 🛠️ نفس البوست ممكن يكون متعروض في نفس اللحظة في الفيد الرئيسي (مخفي
+// بس لسه موجود في الـ DOM) وفي صفحة البروفايل (ظاهر) — الاتنين بنفس
+// data-post-id بالظبط. document.querySelector العادي كان بياخد أول
+// نسخة يلاقيها بترتيب الـ DOM (غالبًا نسخة الفيد المخفية)، مش النسخة
+// اللي المستخدم شايفها فعليًا — وده كان بيسبب حاجات زي "التعليقات مش
+// بتظهر في صفحة البروفايل" أو "الحذف مش بيشتغل من البروفايل" لأن
+// العملية كانت بتحصل على نسخة مخفية تانية. الدالة دي بتفضّل أي نسخة
+// جوه View ظاهر فعليًا حاليًا.
+function isInVisibleView(el) {
+    const view = el.closest('.view-section');
+    return !view || !view.classList.contains('hidden');
+}
+
+function pickVisibleMatch(nodeList) {
+    for (const el of nodeList) {
+        if (isInVisibleView(el)) return el;
+    }
+    return nodeList[0] || null;
+}
+
+// نفس فكرة getPostCard، لحاويات الردود (.replies-container). مينفعش
+// نستخدم offsetParent هنا لأن الحاوية دي عندها حالة "مقفولة/مفتوحة"
+// محلية خاصة بيها (toggleReplies) منفصلة تمامًا عن كون الـ View بتاعها
+// ظاهر ولا لأ.
+function getRepliesContainer(postId) {
+    return pickVisibleMatch(document.querySelectorAll(`.replies-container[data-replies="${CSS.escape(postId)}"]`));
 }
 
 // مشتركة بين الإشعارات ونتائج البحث — يفتح الفيد ويوصل لمكان البوست
