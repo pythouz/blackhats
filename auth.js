@@ -70,24 +70,21 @@ async function signEvent(eventTemplate) {
 // تشفير/فك تشفير بيانات التسجيل (عشان الإيميل والرقم يفضلوا سريين)
 // ============================
 
-async function encryptToAdmin(plaintext) {
-    const adminHex = window.ADMIN_PUBKEY_HEX;
-    if (!adminHex) throw new Error('مفتاح المدير غير متاح');
+async function encryptToPubkey(plaintext, recipientHex) {
+    if (!recipientHex) throw new Error('لا يوجد مستلم للتشفير');
 
     // 🔒 نفضّل NIP-44 (تشفير أحدث وأقوى من NIP-04 القديم): NIP-04 معروف
     // بعيوب تشفيرية — مفيش تحقق من سلامة الرسالة (integrity)، وطريقة
-    // الـ padding بتاعته بتسرّب معلومات عن طول النص الأصلي. بيانات
-    // التسجيل هنا (اسم + إيميل + رقم تليفون) حساسة فعلاً، فده أنسب مكان
-    // نرفع فيه مستوى التشفير. لو NIP-44 مش متاح (امتداد NIP-07 قديم أو
-    // نسخة مكتبة قديمة)، بنرجع تلقائيًا لـ NIP-04 عشان التسجيل يفضل
-    // شغال في كل الأحوال بدل ما يفشل تمامًا.
+    // الـ padding بتاعته بتسرّب معلومات عن طول النص الأصلي. لو NIP-44 مش
+    // متاح (امتداد NIP-07 قديم أو نسخة مكتبة قديمة)، بنرجع تلقائيًا لـ
+    // NIP-04 عشان العملية تفضل شغالة في كل الأحوال بدل ما تفشل تمامًا.
     try {
         if (usingNip07 && window.nostr?.nip44?.encrypt) {
-            return 'nip44:' + await window.nostr.nip44.encrypt(adminHex, plaintext);
+            return 'nip44:' + await window.nostr.nip44.encrypt(recipientHex, plaintext);
         }
         if (!usingNip07 && secretKeyHex && NostrTools?.nip44?.encrypt && NostrTools?.nip44?.getConversationKey) {
             const skBytes = Uint8Array.from(secretKeyHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-            const convKey = NostrTools.nip44.getConversationKey(skBytes, adminHex);
+            const convKey = NostrTools.nip44.getConversationKey(skBytes, recipientHex);
             return 'nip44:' + await NostrTools.nip44.encrypt(plaintext, convKey);
         }
     } catch (e) {
@@ -96,34 +93,46 @@ async function encryptToAdmin(plaintext) {
 
     // احتياطي: NIP-04
     if (usingNip07 && window.nostr?.nip04?.encrypt) {
-        return await window.nostr.nip04.encrypt(adminHex, plaintext);
+        return await window.nostr.nip04.encrypt(recipientHex, plaintext);
     }
     if (!secretKeyHex) throw new Error('لا يوجد مفتاح للتشفير');
-    return await NostrTools.nip04.encrypt(secretKeyHex, adminHex, plaintext);
+    return await NostrTools.nip04.encrypt(secretKeyHex, recipientHex, plaintext);
 }
 
-async function decryptFromUser(ciphertext, userPubkey) {
-    // بادئة 'nip44:' بتحدد إن الرسالة اتشفرت بـ NIP-44 (شوف encryptToAdmin
-    // فوق). محتاجينها لأن REGISTER_EVENT_KIND كود مخصص للتطبيق مش نوع
-    // حدث Nostr قياسي بيدل بذاته على نوع التشفير المستخدم.
+async function decryptFromPubkey(ciphertext, senderHex) {
+    // بادئة 'nip44:' بتحدد إن الرسالة اتشفرت بـ NIP-44 (شوف encryptToPubkey
+    // فوق). محتاجينها لأن الأكواد دي مخصصة للتطبيق مش أنواع أحداث Nostr
+    // قياسية بتدل بذاتها على نوع التشفير المستخدم.
     if (typeof ciphertext === 'string' && ciphertext.startsWith('nip44:')) {
         const payload = ciphertext.slice(6);
         if (usingNip07 && window.nostr?.nip44?.decrypt) {
-            return await window.nostr.nip44.decrypt(userPubkey, payload);
+            return await window.nostr.nip44.decrypt(senderHex, payload);
         }
         if (secretKeyHex && NostrTools?.nip44?.decrypt && NostrTools?.nip44?.getConversationKey) {
             const skBytes = Uint8Array.from(secretKeyHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-            const convKey = NostrTools.nip44.getConversationKey(skBytes, userPubkey);
+            const convKey = NostrTools.nip44.getConversationKey(skBytes, senderHex);
             return await NostrTools.nip44.decrypt(payload, convKey);
         }
         throw new Error('NIP-44 غير متاح لفك التشفير (حدّث الامتداد أو المتصفح)');
     }
-    // نسخة أقدم (NIP-04) — للتوافق مع أي طلبات اتبعتت قبل هذا التحديث
+    // نسخة أقدم (NIP-04) — للتوافق مع أي رسائل اتبعتت قبل هذا التحديث
     if (usingNip07 && window.nostr?.nip04?.decrypt) {
-        return await window.nostr.nip04.decrypt(userPubkey, ciphertext);
+        return await window.nostr.nip04.decrypt(senderHex, ciphertext);
     }
     if (!secretKeyHex) throw new Error('لا يوجد مفتاح لفك التشفير');
-    return await NostrTools.nip04.decrypt(secretKeyHex, userPubkey, ciphertext);
+    return await NostrTools.nip04.decrypt(secretKeyHex, senderHex, ciphertext);
+}
+
+// أغلفة رفيعة للتوافق مع registration.js اللي بينادي على الاسمين
+// القديمين دول تحديدًا — بدل ما نلمس الكود بتاعها.
+async function encryptToAdmin(plaintext) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex) throw new Error('مفتاح المدير غير متاح');
+    return encryptToPubkey(plaintext, adminHex);
+}
+
+async function decryptFromUser(ciphertext, userPubkey) {
+    return decryptFromPubkey(ciphertext, userPubkey);
 }
 
 function exportKey() {
