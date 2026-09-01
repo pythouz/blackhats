@@ -94,6 +94,9 @@ let activeCalls = new Map();
 let announcedPeers = new Set();
 let isMuted = false;
 let isJoiningRoom = false;
+let roomHeartbeatInterval = null;   // إعادة إعلان الحضور دوريًا طول ما إحنا في الغرفة
+let roomListenTimer = null;          // مؤقت إعادة اشتراك listenForPeers — لازم نلغيه لما نخرج
+let vadAudioContext = null;          // AudioContext بتاع كاشف الكلام — لازم يتقفل لما نخرج
 
 let bgAudioContext = null;
 let silentAudioElement = null;
@@ -148,3 +151,28 @@ let notifications = [];
 let unreadNotifCount = 0;
 const seenNotifIds = new Set();
 let notificationsSubscription = null;
+
+// ============================
+// (فيتشر جديد) الرسائل الخاصة (DM) والمكالمات الفردية
+// ============================
+// كل محادثة متخزنة بمفتاح = pubkey الطرف التاني.
+// conversations: pubkey -> { messages: [{id, from, text, createdAt, pending?}], unread: number }
+const conversations = new Map();
+let dmSubscription = null;
+const seenDmIds = new Set();
+let activeChatPubkey = null;   // المحادثة المفتوحة حاليًا (لو فيه)
+let totalUnreadDms = 0;
+
+// مكالمات فردية خارج الغرف — منفصلة تمامًا عن نظام peer بتاع الغرف
+// الجماعية (rooms.js) عشان محدش يتعارض مع التاني.
+let dmPeer = null;
+let dmLocalStream = null;
+let dmActiveCall = null;       // كائن MediaConnection بتاع PeerJS
+let dmCallState = 'idle';      // idle | calling | ringing | in-call
+let dmCallPeerPubkey = null;
+let dmCallPeerId = null;
+let dmCallSubscription = null;
+let dmCallStartTime = null;
+let dmCallTimerInterval = null;
+let dmCallTimeoutId = null;
+let dmIsMuted = false;
