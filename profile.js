@@ -305,6 +305,18 @@ function updateAvatarsInDom(pubkey) {
         if (slot) slot.innerHTML = avatarHtml(pubkey, 'w-10 h-10 text-sm');
     });
 
+    // 🛠️ كان ناقص تمامًا: التعليقات (.reply-item) بتترندر غالبًا قبل ما
+    // بيانات صاحبها توصل من الشبكة (fetchProfiles بتاخد وقت)، فكانت
+    // بتفضل عارضة الاسم المختصر (hex) والأفاتار الافتراضي للأبد حتى بعد
+    // ما البروفايل يوصل فعليًا — لأن مفيش حاجة كانت بتحدّث الـ DOM بتاع
+    // التعليق تاني بعد الجلب.
+    document.querySelectorAll(`.reply-item[data-pubkey="${pubkey}"]`).forEach(item => {
+        const nameEl = item.querySelector('.reply-author-name');
+        if (nameEl && profile?.name) nameEl.textContent = displayName;
+        const slot = item.querySelector('.avatar-slot');
+        if (slot) slot.innerHTML = avatarHtml(pubkey, 'w-9 h-9 text-sm');
+    });
+
     document.querySelectorAll(`.participant-avatar[data-pubkey="${pubkey}"]`).forEach(slot => {
         slot.innerHTML = avatarHtml(pubkey, 'w-12 h-12 text-sm');
     });
@@ -376,6 +388,21 @@ function openMyProfilePage() {
 
 function openProfilePage(pubkey) {
     if (!pubkey) { showToast('لا يوجد مفتاح للمستخدم', 'error'); return; }
+
+    // 🛠️ لو كنت أصلاً في صفحة بروفايل ودُست على بروفايل تاني (زي الضغط
+    // على اسم حد رد على بوست)، من غير التنظيف ده الاشتراك القديم فضل
+    // شغال وبوستات الشخص الأول فضلت ظاهرة، فبوستات الاتنين كانت بتتخلط
+    // مع بعض في نفس الصفحة. لازم نقفل ونمسح قبل ما نجيب بروفايل جديد.
+    if (profilePostsSubscription) {
+        try { profilePostsSubscription.close(); } catch(e) {}
+        profilePostsSubscription = null;
+    }
+    profileOldestTimestamp = null;
+    const postsContainer = document.getElementById('profile-posts-container');
+    if (postsContainer) postsContainer.innerHTML = '';
+    const moreContainer = document.getElementById('profile-load-more-container');
+    if (moreContainer) moreContainer.classList.add('hidden');
+
     // إخفاء جميع الـ views
     document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
     const profileView = document.getElementById('view-profile');
@@ -444,14 +471,24 @@ function renderFollowButton(pubkey) {
     wrap.classList.remove('hidden');
     const isFollowing = myContacts.has(pubkey);
     wrap.innerHTML = `
-        <button id="profile-follow-btn" onclick="toggleFollow('${pubkey}')"
-            class="font-bold px-4 py-2 rounded-full text-sm transition active:scale-95 ${
-                isFollowing
-                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10'
-                    : 'bg-accent text-white hover:opacity-90'
-            }">
-            <i class="fas ${isFollowing ? 'fa-user-check' : 'fa-user-plus'} ml-1"></i>${isFollowing ? 'متابَع' : 'متابعة'}
-        </button>
+        <div class="flex items-center gap-2">
+            <button onclick="startDmCall('${pubkey}')" title="مكالمة صوتية"
+                class="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 flex items-center justify-center hover:bg-accent/10 hover:text-accent transition">
+                <i class="fas fa-phone text-sm"></i>
+            </button>
+            <button onclick="openChatFromProfile('${pubkey}')" title="مراسلة"
+                class="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 flex items-center justify-center hover:bg-accent/10 hover:text-accent transition">
+                <i class="fas fa-envelope text-sm"></i>
+            </button>
+            <button id="profile-follow-btn" onclick="toggleFollow('${pubkey}')"
+                class="font-bold px-4 py-2 rounded-full text-sm transition active:scale-95 ${
+                    isFollowing
+                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10'
+                        : 'bg-accent text-white hover:opacity-90'
+                }">
+                <i class="fas ${isFollowing ? 'fa-user-check' : 'fa-user-plus'} ml-1"></i>${isFollowing ? 'متابَع' : 'متابعة'}
+            </button>
+        </div>
     `;
 }
 
@@ -575,28 +612,32 @@ function closeProfilePage() {
 
 async function loadProfileData(pubkey) {
     // جلب الميتاداتا
+    let earliestSeen = null;
     const sub = pool.subscribeMany(RELAYS, [{ kinds: [0], authors: [pubkey], limit: 1 }], {
         onevent: (event) => {
+            if (currentProfilePubkey !== pubkey) return; // بدّلنا لبروفايل تاني في الأثناء
+            if (!earliestSeen || event.created_at < earliestSeen) earliestSeen = event.created_at;
             try {
                 const meta = JSON.parse(event.content || '{}');
-                renderProfilePage(pubkey, meta);
+                renderProfilePage(pubkey, meta, earliestSeen);
             } catch(e) { showToast('خطأ في قراءة البيانات', 'error'); }
         },
         oneose: () => {
+            sub.close();
+            if (currentProfilePubkey !== pubkey) return; // بدّلنا لبروفايل تاني في الأثناء
             const cached = profileCache.get(pubkey);
             if (cached) {
-                renderProfilePage(pubkey, { name: cached.name || '', picture: cached.picture || '', about: cached.about || '' });
+                renderProfilePage(pubkey, { name: cached.name || '', picture: cached.picture || '', about: cached.about || '' }, earliestSeen);
             } else {
-                renderProfilePage(pubkey, {});
+                renderProfilePage(pubkey, {}, earliestSeen);
             }
-            sub.close();
         }
     });
     // تحميل المنشورات
     loadProfilePosts(pubkey);
 }
 
-function renderProfilePage(pubkey, meta) {
+function renderProfilePage(pubkey, meta, joinedTimestamp) {
     const name = meta.display_name || meta.name || 'مجهول';
     const picture = meta.picture || '';
     const banner = meta.banner || '';
@@ -660,7 +701,17 @@ function renderProfilePage(pubkey, meta) {
     }
 
     const joinedEl = document.getElementById('profile-page-joined');
-    if (joinedEl) joinedEl.textContent = 'تاريخ غير معروف';
+    if (joinedEl) {
+        // 🛠️ كانت دايمًا "تاريخ غير معروف" مهما حصل. Nostr مفيهوش مفهوم
+        // "تاريخ إنشاء حساب" رسمي، فأقرب تقريب منطقي هو تاريخ أقدم حدث
+        // بروفايل (kind:0) لقيناه لصاحب الصفحة دي.
+        if (joinedTimestamp) {
+            const d = new Date(joinedTimestamp * 1000);
+            joinedEl.textContent = d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long' });
+        } else {
+            joinedEl.textContent = 'تاريخ غير معروف';
+        }
+    }
 
     profileCache.set(pubkey, { name, picture, about });
 }
@@ -702,7 +753,17 @@ function loadProfilePosts(pubkey, until) {
             // فمش المفروض يظهر في صفحة البروفايل كأنه بوست.
             if (isReplyEvent(event)) return;
             console.log('[Profile] وصول منشور:', event.id);
+            // 🛠️ الكود ده كان ناقص تمامًا قبل كده: من غيره postStats
+            // ما كانش عنده أي بيانات عن بوستات البروفايل دي، فأي محاولة
+            // لايك لبوست قديم (مش موجود في الفيد الرئيسي حاليًا) كانت
+            // بتفشل فورًا برسالة "المنشور غير موجود". نفس التهيئة
+            // المستخدمة في الفيد الرئيسي بالظبط.
+            if (!postStats.has(event.id)) {
+                initPostState(event.id, event.created_at);
+                postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
+            }
             renderProfilePost(event);
+            scheduleReactionResubscribe();
         },
         oneose: () => {
             if (loading) loading.classList.add('hidden');
