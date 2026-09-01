@@ -1,205 +1,411 @@
 /* =========================================================
-   Pulse — utils.js
-   دوال مساعدة عامة
+   Pulse — ui.js
+   التنقل بين الصفحات، المظهر، الإعدادات، البحث، والحظر
    ========================================================= */
 
-// ============================
-// 3. دوال مساعدة
-// ============================
-
-function $(id) {
-    return document.getElementById(id);
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function safeRoomName(name) {
-    if (!name) return 'غرفة';
-    return name.replace(/[^a-zA-Z0-9\u0600-\u06FF\-_ ]/g, '').trim().slice(0, 30) || 'غرفة';
-}
-
-function getErrorMessage(error) {
-    if (typeof error === 'string') return error;
-    if (error?.message) return error.message;
-    return 'حدث خطأ غير معروف';
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function limitSet(set, max) {
-    if (set.size > max) {
-        const iter = set.values();
-        while (set.size > max) {
-            iter.next();
-            set.delete(iter.next().value);
-        }
-    }
-}
-
-function limitMap(map, max) {
-    if (map.size > max) {
-        const iter = map.keys();
-        while (map.size > max) {
-            const key = iter.next().value;
-            if (key !== undefined) map.delete(key);
-        }
-    }
-}
-
-function getDisplayName(pubkey) {
-    const profile = profileCache.get(pubkey);
-    if (profile?.name) return profile.name;
-    if (pubkey) return pubkey.slice(0, 8) + '...';
-    return 'مجهول';
-}
-
-function getTagValue(tags, key) {
-    if (!tags) return null;
-    for (const tag of tags) {
-        if (tag[0] === key) return tag[1];
-    }
-    return null;
-}
-
-// ============================
-// (أمان) Rate limiting بسيط على أفعال النشر
-// ============================
-// بيمنع حالتين: (1) دبل-كليك بالغلط يبقى بوست/رد/لايك متكرر، و(2) إغراق
-// الـ relays الأربعة بعدد كبير من الطلبات في وقت قصير — سبام مقصود أو
-// سكربت خارجي بيستدعي الدوال دي مباشرة. أغلب الـ relays (damus/nos.lol/
-// nostr.band) بتحظر أو تعمل throttle للاتصال كله مؤقتًا لو حسّت بسلوك
-// زي ده، فده بيحمي التطبيق من إنه يوقّف نفسه بنفسه.
-const rateLimitState = new Map(); // actionKey -> [timestamps بالمللي ثانية]
-
-/**
- * @param {string} actionKey معرف الفعل، مثلاً 'publishPost'
- * @param {number} minGapMs أقل فاصل زمني مسموح بين فعلين من نفس النوع
- * @param {number} maxInWindow أقصى عدد مرات مسموحة جوه النافذة الزمنية
- * @param {number} windowMs مدة النافذة الزمنية بالمللي ثانية
- * @returns {boolean} true لو الفعل مسموح ينفّذ، false لو لازم يتمنع (وبيعرض toast تلقائيًا)
- */
-function checkRateLimit(actionKey, minGapMs, maxInWindow, windowMs) {
-    const now = Date.now();
-    let timestamps = (rateLimitState.get(actionKey) || []).filter(t => now - t < windowMs);
-
-    if (timestamps.length && now - timestamps[timestamps.length - 1] < minGapMs) {
-        rateLimitState.set(actionKey, timestamps);
-        showToast('برجاء الانتظار لحظة قبل المحاولة تاني', 'error');
-        return false;
-    }
-    if (timestamps.length >= maxInWindow) {
-        rateLimitState.set(actionKey, timestamps);
-        showToast('وصلت للحد المسموح من المحاولات، حاول تاني بعد شوية', 'error');
-        return false;
-    }
-
-    timestamps.push(now);
-    rateLimitState.set(actionKey, timestamps);
-    return true;
-}
-
-// ============================
-// نشر حدث على الـ relays مع تأكيد فعلي
-// ============================
-// ⚠️ مهم جدًا: pool.publish(RELAYS, event) بيرجّع Array من الـ Promises
-// (وعد واحد لكل relay)، مش Promise واحد. لو تعمل `await pool.publish(...)`
-// مباشرة، الـ await بيتحقق فورًا على الـ Array نفسه (مش على محتواه)
-// من غير ما يستنى أي رد فعلي من أي relay — يعني الكود بيكمل وكأن النشر
-// نجح حتى لو كل الـ relays رفضوا الحدث فعليًا، وده كان بيسبب اختفاء
-// المنشورات بعد الريفرش لإنها ما كانتش اتخزنت على أي relay من الأساس.
-//
-// ⚡ (تحسين الأداء) قبل كده كنا بنستخدم Promise.allSettled وده بيستنى
-// الـ 4 relays الأربعة كلهم يردوا (سواء نجحوا أو فشلوا) قبل ما يسيب
-// الكود يكمل. النتيجة إن أي حركة في التطبيق (نشر/لايك/رد/متابعة/حذف...)
-// كانت بتاخد وقت أطول relay أبطأهم — وده كان السبب الرئيسي في إحساس
-// إن المنصة كلها بطيئة. دلوقتي الدالة بترجع فور ما أول relay يقبل
-// الحدث (زي أغلب تطبيقات Nostr)، والباقي بيكمل نشره في الخلفية.
-// وبرضو فيه timeout أمان (10 ثواني) عشان لو relay اتعلق من غير ما
-// يرد أو يفشل، التطبيق ميفضلش واقف له للأبد.
-async function publishToRelays(event) {
-    const pubs = pool.publish(RELAYS, event);
-    if (!pubs || pubs.length === 0) throw new Error('لا يوجد relays متاحة');
-
-    return new Promise((resolve, reject) => {
-        let settledCount = 0;
-        let done = false;
-        const reasons = [];
-        const total = pubs.length;
-
-        const safetyTimer = setTimeout(() => {
-            if (done) return;
-            done = true;
-            reject(new Error('لم يستجب أي relay في الوقت المناسب، حاول تاني'));
-        }, 10000);
-
-        pubs.forEach(p => {
-            Promise.resolve(p).then(() => {
-                settledCount++;
-                if (done) return;
-                done = true;
-                clearTimeout(safetyTimer);
-                resolve(settledCount);
-            }).catch(err => {
-                reasons.push((err?.message || err || '').toString());
-                settledCount++;
-                if (done) return;
-                if (settledCount === total) {
-                    done = true;
-                    clearTimeout(safetyTimer);
-                    reject(new Error(reasons.filter(Boolean).join(' | ') || 'لم يقبل أي relay هذا الحدث'));
-                }
-            });
-        });
+function switchView(viewName) {
+    document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+    const target = $(`view-${viewName}`);
+    if (target) target.classList.remove('hidden');
+    document.querySelectorAll('.nav-btn').forEach(b => {
+        b.classList.remove('text-accent', 'active');
+        b.classList.add('text-gray-400');
     });
+    const active = $(`nav-${viewName}`);
+    if (active) {
+        active.classList.add('text-accent', 'active');
+        active.classList.remove('text-gray-400');
+    }
+    localStorage.setItem('pulse_view', viewName);
 
+    if (viewName === 'settings') {
+        updateSettingsUI();
+    }
+    if (viewName === 'messages') {
+        // نقفل أي محادثة كانت متفتحة قبل كده ونرجع لقائمة المحادثات
+        const threadEl = $('chat-thread-view');
+        const listEl = $('conversations-list-view');
+        if (threadEl) threadEl.classList.add('hidden');
+        if (listEl) listEl.classList.remove('hidden');
+        activeChatPubkey = null;
+        if (typeof renderMessagesList === 'function') renderMessagesList();
+    }
+}
+
+function updateSettingsUI() {
+    const adminBtn = document.getElementById('settings-admin-btn');
+    if (adminBtn) {
+        const isAdmin = window.isCurrentUserAdmin ? window.isCurrentUserAdmin() : false;
+        adminBtn.classList.toggle('hidden', !isAdmin);
+    }
+}
+
+function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+}
+
+function toggleSettings() {
+    const panel = $('settings-panel');
+    if (panel) panel.classList.toggle('hidden');
+}
+
+function onAvatarSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const error = validateImageFile(file);
+    if (error) { showToast(error, 'error'); return; }
+    revokePreview(pendingAvatarPreviewUrl);
+    pendingAvatarFile = file;
+    pendingAvatarPreviewUrl = URL.createObjectURL(file);
+    renderProfileImages();
+}
+
+function onBannerSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const error = validateImageFile(file);
+    if (error) { showToast(error, 'error'); return; }
+    revokePreview(pendingBannerPreviewUrl);
+    pendingBannerFile = file;
+    pendingBannerPreviewUrl = URL.createObjectURL(file);
+    renderProfileImages();
+}
+
+function removeBanner() {
+    revokePreview(pendingBannerPreviewUrl);
+    pendingBannerPreviewUrl = null;
+    pendingBannerFile = null;
+    renderProfileImages();
+}
+
+function addBanButtonToPost(postElement, postPubkey) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (!adminHex || !pk) return;
+    if (pk !== adminHex || pk === postPubkey) return;
+
+    const actionsContainer = postElement.querySelector('.post-actions');
+    if (!actionsContainer) return;
+    if (actionsContainer.querySelector('.ban-button')) return;
+
+    const isBanned = bannedPubkeys.has(postPubkey);
+    const btn = document.createElement('button');
+    btn.className = 'ban-button flex items-center gap-1 hover:text-red-500 dark:hover:text-red-400 transition text-sm';
+    btn.innerHTML = `<i class="fas ${isBanned ? 'fa-user-check' : 'fa-user-slash'}"></i>`;
+    btn.title = isBanned ? 'إلغاء حظر هذا المستخدم' : 'حظر هذا المستخدم';
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        toggleBanUser(postPubkey);
+    };
+
+    actionsContainer.appendChild(btn);
+}
+
+async function toggleBanUser(targetPubkey) {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (pk !== adminHex) {
+        showToast('أنت لست مديراً', 'error');
+        return;
+    }
+    if (!targetPubkey) {
+        showToast('خطأ: لا يوجد مفتاح مستهدف', 'error');
+        return;
+    }
+    if (targetPubkey === pk) {
+        showToast('لا يمكن حظر نفسك', 'error');
+        return;
+    }
+
+    const isBanned = bannedPubkeys.has(targetPubkey);
+    const action = isBanned ? 'unban' : 'ban';
+    const confirmMsg = isBanned
+        ? `هل تريد إلغاء حظر المستخدم ${targetPubkey.slice(0,8)}...؟`
+        : `هل تريد حظر المستخدم ${targetPubkey.slice(0,8)}...؟`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const eventTemplate = {
+            kind: BAN_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', targetPubkey]],
+            content: action,
+        };
+        const signed = await signEvent(eventTemplate);
+        await Promise.all(RELAYS.map(url => pool.publish([url], signed)));
+        processBanEvent(signed);
+        if (typeof reorderFeed === 'function') reorderFeed();
+    } catch (e) {
+        console.error('[Moderation] فشل نشر حدث الحظر:', e);
+        showToast('فشل نشر الحدث: ' + getErrorMessage(e), 'error');
+    }
+}
+
+let adminPanelOpen = false;
+
+function openAdminPanel() {
+    const adminHex = window.ADMIN_PUBKEY_HEX;
+    if (pk !== adminHex) {
+        showToast('أنت لست مديراً', 'error');
+        return;
+    }
+    let panel = document.getElementById('admin-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'admin-panel';
+        panel.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+        panel.innerHTML = `
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-900 dark:text-white">👮 لوحة التحكم</h2>
+                    <button onclick="closeAdminPanel()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+
+                <div class="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+                    <button id="admin-tab-registrations" onclick="switchAdminTab('registrations')"
+                            class="px-3 py-2 text-sm font-bold border-b-2 border-accent text-accent">
+                        طلبات التسجيل <span id="registrations-count-badge" class="ml-1 bg-red-500 text-white rounded-full px-2 text-xs">0</span>
+                    </button>
+                    <button id="admin-tab-banned" onclick="switchAdminTab('banned')"
+                            class="px-3 py-2 text-sm font-bold border-b-2 border-transparent text-gray-400">
+                        المحظورون
+                    </button>
+                </div>
+
+                <div id="admin-tab-content-registrations">
+                    <div id="registrations-list" class="space-y-2"></div>
+                </div>
+
+                <div id="admin-tab-content-banned" class="hidden">
+                    <div id="banned-list" class="space-y-2"></div>
+                    <div class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                        عدد المحظورين: <span id="banned-count">0</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(panel);
+        panel.addEventListener('click', (e) => {
+            if (e.target === panel) closeAdminPanel();
+        });
+    }
+    renderBannedList();
+    if (typeof renderPendingRegistrationsPanel === 'function') renderPendingRegistrationsPanel();
+    panel.classList.remove('hidden');
+    adminPanelOpen = true;
+}
+
+function switchAdminTab(tab) {
+    const regTab = document.getElementById('admin-tab-registrations');
+    const banTab = document.getElementById('admin-tab-banned');
+    const regContent = document.getElementById('admin-tab-content-registrations');
+    const banContent = document.getElementById('admin-tab-content-banned');
+    if (!regTab || !banTab || !regContent || !banContent) return;
+
+    const activate = (btn) => { btn.classList.add('border-accent', 'text-accent'); btn.classList.remove('border-transparent', 'text-gray-400'); };
+    const deactivate = (btn) => { btn.classList.remove('border-accent', 'text-accent'); btn.classList.add('border-transparent', 'text-gray-400'); };
+
+    if (tab === 'registrations') {
+        activate(regTab); deactivate(banTab);
+        regContent.classList.remove('hidden'); banContent.classList.add('hidden');
+    } else {
+        activate(banTab); deactivate(regTab);
+        banContent.classList.remove('hidden'); regContent.classList.add('hidden');
+    }
+}
+
+function closeAdminPanel() {
+    const panel = document.getElementById('admin-panel');
+    if (panel) panel.classList.add('hidden');
+    adminPanelOpen = false;
+}
+
+function renderBannedList() {
+    const list = document.getElementById('banned-list');
+    const countSpan = document.getElementById('banned-count');
+    if (!list) return;
+    const bannedArray = Array.from(bannedPubkeys);
+    countSpan.textContent = bannedArray.length;
+
+    if (bannedArray.length === 0) {
+        list.innerHTML = '<p class="text-gray-500 dark:text-gray-400">لا يوجد مستخدمون محظورون</p>';
+        return;
+    }
+
+    list.innerHTML = bannedArray.map(pubkey => `
+        <div class="flex justify-between items-center p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+            <span class="text-sm font-mono break-all">${pubkey}</span>
+            <button onclick="toggleBanUser('${pubkey}')" class="text-red-500 hover:text-red-700 text-sm px-3 py-1 rounded-full bg-red-50 dark:bg-red-900/30">
+                <i class="fas fa-user-slash"></i> إلغاء الحظر
+            </button>
+        </div>
+    `).join('');
+}
+
+function searchUser() {
+    const input = document.getElementById('search-input');
+    if (!input) return;
+    const query = input.value.trim();
+    if (!query) {
+        showToast('اكتب كلمة، هاشتاج، أو مفتاحاً عاماً للبحث', 'info');
+        return;
+    }
+
+    // مفتاح عام (npub أو hex) → نفس سلوك البحث عن مستخدم القديم
+    if (query.startsWith('npub1') || /^[0-9a-fA-F]{64}$/.test(query)) {
+        searchByPubkey(query);
+        return;
+    }
+
+    // غير كده → بحث نصي/هاشتاج في البوستات المحمّلة حاليًا في الفيد
+    searchPostsByText(query);
+}
+
+function searchByPubkey(query) {
+    let pubkey = query;
+    if (query.startsWith('npub1')) {
+        try {
+            const decoded = NostrTools.nip19.decode(query);
+            if (decoded.type === 'npub') {
+                pubkey = decoded.data;
+            }
+        } catch (e) {
+            showToast('npub غير صالح', 'error');
+            return;
+        }
+    } else if (!/^[0-9a-fA-F]{64}$/.test(query)) {
+        showToast('يجب إدخال npub أو مفتاح hex صالح (64 حرف)', 'error');
+        return;
+    }
+
+    fetchProfiles([pubkey]);
+    const name = getDisplayName(pubkey);
+    const npubFormatted = NostrTools.nip19.npubEncode(pubkey);
+
+    const existing = document.getElementById('search-result-popup');
+    if (existing) existing.remove();
+
+    const popup = document.createElement('div');
+    popup.id = 'search-result-popup';
+    popup.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4';
+    popup.innerHTML = `
+        <div class="bg-white dark:bg-surface rounded-3xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg dark:text-white">نتيجة البحث</h3>
+                <button onclick="this.closest('#search-result-popup').remove()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="avatar-slot">${avatarHtml(pubkey, 'w-14 h-14 text-lg')}</div>
+                <div>
+                    <p class="font-bold dark:text-white">${escapeHtml(name)}</p>
+                    <p class="text-xs text-gray-400 font-mono break-all">${npubFormatted}</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="navigator.clipboard.writeText('${npubFormatted}')" 
+                        class="flex-1 bg-gray-100 dark:bg-gray-800 py-2 rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                    <i class="fas fa-copy"></i> نسخ npub
+                </button>
+                <button onclick="navigator.clipboard.writeText('${pubkey}')" 
+                        class="flex-1 bg-gray-100 dark:bg-gray-800 py-2 rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                    <i class="fas fa-hashtag"></i> نسخ hex
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+    popup.addEventListener('click', (e) => {
+        if (e.target === popup) popup.remove();
+    });
 }
 
 // ============================
-// 4. نظام التنبيهات (Toast)
+// (فيتشر جديد) بحث نصي/هاشتاج داخل البوستات المحمّلة حاليًا
 // ============================
+// ملاحظة مهمة: بروتوكول Nostr الأساسي (NIP-01) ما بيدعمش بحث نصي على
+// مستوى الـ relay إلا باشتراك اختياري (NIP-50) مش كل الـ relays الأربعة
+// بتاعتنا بتدعمه بنفس الشكل. عشان كده البحث هنا بيشتغل على البوستات
+// اللي أصلاً اتحمّلت في المتصفح (feed + تحميل المزيد) بدل ما يعتمد على
+// دعم غير مضمون من الـ relay — كده بيشتغل 100% في كل الحالات، بس نطاقه
+// محدود بالبوستات المحمّلة فعليًا. لو النتائج مش كافية، بننصح المستخدم
+// بزرار "تحميل المزيد" في الفيد الأول.
+function searchPostsByText(query) {
+    const needle = (query.startsWith('#') ? query.slice(1) : query).toLowerCase();
+    if (!needle) { showToast('اكتب كلمة أو هاشتاج للبحث', 'info'); return; }
 
-let toastTimeout = null;
+    const results = [];
+    for (const postId of renderedPosts.keys()) {
+        const data = postContentMap.get(postId);
+        if (!data || !data.content) continue;
+        if (data.content.toLowerCase().includes(needle)) {
+            const card = getPostCard(postId);
+            results.push({
+                postId,
+                pubkey: card?.dataset.pubkey || null,
+                content: data.content,
+                createdAt: data.created_at || 0
+            });
+        }
+    }
+    results.sort((a, b) => b.createdAt - a.createdAt);
+    renderSearchResults(query, results);
+}
 
-function showToast(message, type = 'info') {
-    const toast = $('toast');
-    const msgEl = $('toast-msg');
-    const iconEl = $('toast-icon');
-    if (!toast || !msgEl || !iconEl) return;
+function renderSearchResults(query, results) {
+    const panel = $('search-results-panel');
+    const title = $('search-results-title');
+    const list = $('search-results-list');
+    if (!panel || !list) return;
 
-    if (toastTimeout) {
-        clearTimeout(toastTimeout);
-        toastTimeout = null;
+    if (title) title.textContent = `نتائج البحث عن "${query}"`;
+
+    if (!results.length) {
+        list.innerHTML = `
+            <p class="text-center text-gray-400 text-sm py-8 px-4 leading-relaxed">
+                مفيش نتائج في البوستات المحمّلة حاليًا. 🔍<br>
+                جرّب زرار "تحميل المزيد" أسفل الفيد الأساسي عشان نوسّع نطاق البحث لبوستات أقدم، وبعدين حاول تاني.
+            </p>`;
+    } else {
+        list.innerHTML = results.map(r => {
+            const name = r.pubkey ? escapeHtml(getDisplayName(r.pubkey)) : 'مستخدم';
+            const snippet = escapeHtml(r.content.length > 160 ? r.content.slice(0, 160) + '…' : r.content);
+            const avatar = r.pubkey ? avatarHtml(r.pubkey, 'w-9 h-9 text-sm') : '';
+            return `
+                <button onclick="closeSearchResults(); scrollToPost('${r.postId}')"
+                        class="w-full flex items-start gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                    <div class="flex-shrink-0 mt-0.5">${avatar}</div>
+                    <div class="flex-1 min-w-0 text-sm">
+                        <p class="font-bold dark:text-white">${name}</p>
+                        <p class="text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed break-words">${snippet}</p>
+                    </div>
+                </button>
+            `;
+        }).join('');
     }
 
-    msgEl.textContent = message;
+    panel.classList.remove('hidden');
+}
 
-    const icons = {
-        success: 'fa-check-circle',
-        error: 'fa-exclamation-circle',
-        info: 'fa-info-circle',
-        warning: 'fa-exclamation-triangle'
-    };
-    const colors = {
-        success: 'text-green-400 dark:text-green-600',
-        error: 'text-red-400 dark:text-red-600',
-        info: 'text-blue-400 dark:text-blue-600',
-        warning: 'text-yellow-400 dark:text-yellow-600'
-    };
-    iconEl.className = `fas ${icons[type] || icons.info} ${colors[type] || colors.info}`;
+function closeSearchResults() {
+    $('search-results-panel')?.classList.add('hidden');
+}
 
-    toast.classList.remove('hidden');
-    toast.classList.add('flex');
+function importKeyFromHeader() {
+    importKey();
+}
 
-    toastTimeout = setTimeout(() => {
-        toast.classList.add('hidden');
-        toast.classList.remove('flex');
-        toastTimeout = null;
-    }, 3000);
+function logout() {
+    if (!confirm('هل أنت متأكد من تسجيل الخروج؟ سيتم حذف المفتاح الخاص من هذا المتصفح.')) return;
+
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem('pulse_nsec_hex');
+
+    showToast('تم تسجيل الخروج ✅', 'success');
+    setTimeout(() => {
+        window.location.reload();
+    }, 800);
 }
