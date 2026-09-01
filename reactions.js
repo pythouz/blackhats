@@ -451,13 +451,13 @@ function processPendingReplies(rootId) {
     const replies = pendingRepliesMap.get(rootId) || [];
     if (!replies.length) return;
 
-    const container = document.querySelector(`.replies-container[data-replies="${CSS.escape(rootId)}"]`);
+    const container = getRepliesContainer(rootId);
     if (!container) {
         setTimeout(() => processPendingReplies(rootId), 1000);
         return;
     }
 
-    const rootPost = document.querySelector(`.post-card[data-post-id="${CSS.escape(rootId)}"]`);
+    const rootPost = getPostCard(rootId);
     if (rootPost) {
         const countEl = rootPost.querySelector('.reply-count');
         if (countEl) {
@@ -488,7 +488,12 @@ function processAllPendingReplies() {
 }
 
 function renderReply(event, container) {
-    if (document.querySelector(`.reply-item[data-post-id="${CSS.escape(event.id)}"]`)) return;
+    // 🛠️ الفحص ده كان document-wide، يعني لو نفس البوست ظاهر في الفيد
+    // الرئيسي وصفحة البروفايل مع بعض، الرد كان بيترندر في نسخة واحدة بس
+    // (الأولى اللي اتلاقت) وبعدين يتعتبر "موجود" فيتمنع من الظهور في
+    // النسخة التانية للأبد. الصح إننا نتأكد إنه مش موجود جوه *الحاوية
+    // دي* تحديدًا، مش أي حاوية في الصفحة كلها.
+    if (container.querySelector(`.reply-item[data-post-id="${CSS.escape(event.id)}"]`)) return;
 
     const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', {
         hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
@@ -506,7 +511,7 @@ function renderReply(event, container) {
             <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${event.pubkey}')">${avatarHtml(event.pubkey, 'w-9 h-9 text-sm')}</div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</span>
+                    <span class="reply-author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</span>
                     <span class="text-xs text-gray-400">${escapeHtml(time)}</span>
                 </div>
                 <div class="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap break-words mt-1">${contentHtml}</div>
@@ -534,11 +539,11 @@ function renderReply(event, container) {
 }
 
 function toggleReplies(postId) {
-    const container = document.querySelector(`.replies-container[data-replies="${CSS.escape(postId)}"]`);
+    const container = getRepliesContainer(postId);
     if (!container) return;
     const isHidden = container.classList.contains('hidden');
     container.classList.toggle('hidden');
-    const icon = document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"] .reply-toggle-icon`);
+    const icon = getPostCard(postId)?.querySelector('.reply-toggle-icon');
     if (icon) {
         icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
     }
