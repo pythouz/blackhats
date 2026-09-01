@@ -131,27 +131,30 @@
 
         /* ===== POST CARD ===== */
         .post-card {
-            transition: all 0.25s ease;
+            transition: box-shadow 0.25s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
             touch-action: manipulation;
         }
         .post-card:hover {
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-            transform: translateY(-2px);
         }
         .dark .post-card:hover {
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
         }
-        .post-card:active {
-            transform: scale(0.98);
-        }
+        /* 🛠️ شلنا transform: translateY/scale من الكارت نفسه هنا: الكارت
+           مش زرار واحد قابل للضغط، وكانت هي دي سبب الإحساس بإن البوست
+           "عايم بيتحرك" لما تدوس على أي حاجة جواه (زي زرار اللايك) —
+           خصوصًا على الموبايل، لأن حالة :hover كانت بتفضل عالقة بعد أول
+           لمسة. زرار اللايك نفسه (.like-button:active) عنده إحساس ضغط
+           خاص بيه تحت، فده كافي لوحده يدّي "إحساس اللايك" المطلوب من غير
+           ما الكارت كله يهتز. */
 
         /* ===== BUTTONS & INTERACTIONS ===== */
         .like-button {
             transition: all 0.2s ease;
         }
         .like-button:active {
-            transform: scale(0.9);
+            transform: scale(0.85);
         }
 
         button {
@@ -174,6 +177,10 @@
 
         .pb-safe {
             padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .pt-safe {
+            padding-top: env(safe-area-inset-top);
         }
 
         /* ===== MODAL OVERLAY ===== */
@@ -314,6 +321,45 @@
             </div>
             <div id="search-results-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
         </div>
+    </div>
+
+    <!-- ========== INCOMING CALL OVERLAY ========== -->
+    <div id="incoming-call-overlay" class="hidden fixed inset-0 z-[110] bg-dark/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-white">
+        <p class="text-sm text-gray-300 mb-2">مكالمة واردة...</p>
+        <div id="incoming-call-avatar" class="mb-4 animate-pulse"></div>
+        <p id="incoming-call-name" class="text-xl font-bold mb-10"></p>
+        <div class="flex items-center gap-10">
+            <div class="flex flex-col items-center gap-2">
+                <button onclick="rejectDmCall()" class="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                    <i class="fas fa-phone-slash text-2xl"></i>
+                </button>
+                <span class="text-xs text-gray-300">رفض</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+                <button onclick="acceptDmCall()" class="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                    <i class="fas fa-phone text-2xl"></i>
+                </button>
+                <span class="text-xs text-gray-300">قبول</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== ACTIVE DM CALL OVERLAY ========== -->
+    <div id="dm-call-overlay" class="hidden fixed inset-0 z-[105] bg-dark/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-white">
+        <div id="dm-call-avatar" class="mb-4"></div>
+        <p id="dm-call-name" class="text-xl font-bold mb-1"></p>
+        <p id="dm-call-status" class="text-sm text-gray-300 mb-1">جاري الاتصال...</p>
+        <p id="dm-call-timer" class="hidden text-sm text-gray-300 mb-8 font-mono">00:00</p>
+        <div class="flex items-center gap-6 mt-6">
+            <button id="dm-call-mute-btn" onclick="toggleDmMute()"
+                    class="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center hover:bg-white/25 transition">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button onclick="hangupDmCall()" class="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                <i class="fas fa-phone-slash text-2xl"></i>
+            </button>
+        </div>
+        <audio id="dm-call-audio" autoplay class="hidden"></audio>
     </div>
 
     <!-- ========== SETTINGS PANEL (اللوحة المنبثقة القديمة - للتوافق) ========== -->
@@ -612,6 +658,48 @@
             </div>
         </div>
 
+        <!-- ===== MESSAGES VIEW ===== -->
+        <div id="view-messages" class="view-section hidden fade-in">
+            <!-- قائمة المحادثات -->
+            <div id="conversations-list-view">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold dark:text-white">الرسائل</h2>
+                    <button onclick="promptNewChat()"
+                            class="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center shadow-md hover:opacity-90 transition">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div id="conversations-list" class="space-y-1"></div>
+            </div>
+
+            <!-- شاشة محادثة مفتوحة -->
+            <div id="chat-thread-view" class="hidden fixed inset-0 z-[75] bg-white dark:bg-dark flex flex-col">
+                <div class="flex items-center gap-3 p-4 border-b border-gray-100 dark:border-gray-800 shrink-0 pt-safe">
+                    <button onclick="closeChat()" class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                        <i class="fas fa-arrow-right dark:text-white"></i>
+                    </button>
+                    <div id="chat-thread-avatar" class="flex-shrink-0"></div>
+                    <p id="chat-thread-name" class="font-bold dark:text-white flex-1 truncate"></p>
+                    <button onclick="startDmCall(activeChatPubkey)"
+                            class="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center hover:bg-accent/20 transition">
+                        <i class="fas fa-phone"></i>
+                    </button>
+                </div>
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-4"></div>
+                <div class="p-3 border-t border-gray-100 dark:border-gray-800 pb-safe shrink-0">
+                    <div class="flex items-end gap-2">
+                        <textarea id="chat-input" rows="1" placeholder="اكتب رسالة..."
+                                  onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendDirectMessage(); }"
+                                  class="flex-1 bg-gray-100 dark:bg-surface rounded-2xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent resize-none max-h-28 dark:text-white"></textarea>
+                        <button onclick="sendDirectMessage()"
+                                class="w-11 h-11 rounded-full bg-accent text-white flex items-center justify-center shadow-md hover:opacity-90 transition shrink-0">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ===== SETTINGS VIEW ===== -->
         <div id="view-settings" class="view-section hidden fade-in">
             <div class="bg-white dark:bg-cardDark rounded-3xl p-6 shadow-soft border border-gray-100 dark:border-gray-800">
@@ -739,6 +827,13 @@
                 <span class="text-xs font-bold">غرف صوتية</span>
             </button>
 
+            <button onclick="switchView('messages')" id="nav-messages"
+                    class="nav-btn relative flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-comment-dots text-2xl"></i>
+                <span id="nav-dm-badge" class="hidden absolute top-0 left-1/2 translate-x-3 -translate-y-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">0</span>
+                <span class="text-xs font-bold">الرسائل</span>
+            </button>
+
             <button onclick="switchView('settings')" id="nav-settings"
                     class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
                 <i class="fas fa-sliders-h text-2xl"></i>
@@ -773,6 +868,7 @@
     <script src="./posts.js"></script>
     <script src="./reactions.js"></script>
     <script src="./rooms.js"></script>
+    <script src="./messages.js"></script>
     <script src="./ui.js"></script>
     <script src="./main.js"></script>
 
