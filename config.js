@@ -28,3 +28,5 @@ const ADMIN_NPUB = 'npub1275cqncumerdquzy66vns23ryh2a27pz2g4z70pfehg7q52shlvsxf9
 const BAN_EVENT_KIND = 8001;
 const REGISTER_EVENT_KIND = 8002;
 const APPROVE_EVENT_KIND = 8003;
+const DM_EVENT_KIND = 8004;        // رسالة خاصة مشفرة بين شخصين
+const CALL_SIGNAL_KIND = 20001;    // إشارات مكالمة صوتية فردية (دعوة/قبول/رفض/إنهاء) — ephemeral زي أحداث الغرف
