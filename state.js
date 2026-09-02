@@ -61,6 +61,7 @@ function scheduleReactionResubscribe() {
     reactionResubscribeTimer = setTimeout(() => {
         reactionResubscribeTimer = null;
         startReactionSubscription();
+        if (typeof startZapsSubscription === 'function') startZapsSubscription();
     }, 700);
 }
 
@@ -176,3 +177,12 @@ let dmCallStartTime = null;
 let dmCallTimerInterval = null;
 let dmCallTimeoutId = null;
 let dmIsMuted = false;
+
+// ============================
+// (فيتشر جديد) الزابس (Lightning tips عبر NIP-57)
+// ============================
+const postZaps = new Map();     // postId -> { total: sats, count }
+const seenZapIds = new Set();
+let zapsSubscription = null;
+let zapTargetPostId = null;
+let zapTargetPubkey = null;
