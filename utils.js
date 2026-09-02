@@ -53,6 +53,55 @@ function limitMap(map, max) {
     }
 }
 
+// ============================
+// (أداء) تخزين بروفايلات المستخدمين محليًا بين الجلسات
+// ============================
+// من غير ده، أي بروفايل شفته قبل كده (حتى لو ألف مرة) كان بيتطلب من
+// الـ relays من الصفر في كل مرة تفتح فيها التطبيق — أبطأ حاجة محسوسة في
+// التحميل الأولي. دلوقتي الاسم والصورة بيظهروا فورًا من الكاش المحلي، وفي
+// نفس الوقت لو البيانات قديمة (أكتر من 6 ساعات) بيتم تحديثها في الخلفية
+// من غير ما ننتظرها (stale-while-revalidate).
+const PROFILE_CACHE_STORAGE_KEY = 'pulse_profile_cache';
+const PROFILE_CACHE_MAX = 800;
+const PROFILE_STALE_MS = 6 * 60 * 60 * 1000; // 6 ساعات
+
+function loadProfileCacheFromStorage() {
+    try {
+        const raw = localStorage.getItem(PROFILE_CACHE_STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data)) return;
+        for (const [pubkey, entry] of data) {
+            if (pubkey && entry) profileCache.set(pubkey, entry);
+        }
+        console.log('[Cache] تحميل', profileCache.size, 'بروفايل من التخزين المحلي');
+    } catch (e) { /* لا يوجد كاش محفوظ، أو تعذّرت القراءة — نبدأ فاضي */ }
+}
+
+let profileCacheSaveTimer = null;
+function scheduleProfileCacheSave() {
+    if (profileCacheSaveTimer) clearTimeout(profileCacheSaveTimer);
+    profileCacheSaveTimer = setTimeout(() => {
+        profileCacheSaveTimer = null;
+        try {
+            limitMap(profileCache, PROFILE_CACHE_MAX);
+            localStorage.setItem(PROFILE_CACHE_STORAGE_KEY, JSON.stringify(Array.from(profileCache.entries())));
+        } catch (e) { /* مساحة التخزين ممتلئة — مش خطير، هيفضل شغال بالذاكرة */ }
+    }, 2000);
+}
+
+function setProfileCache(pubkey, data) {
+    profileCache.set(pubkey, { ...data, cachedAt: Date.now() });
+    scheduleProfileCacheSave();
+}
+
+function isProfileStale(pubkey) {
+    const entry = profileCache.get(pubkey);
+    if (!entry) return true;
+    if (!entry.cachedAt) return true; // بيانات من قبل الفيتشر ده، نعتبرها قديمة ونجدّدها مرة واحدة
+    return (Date.now() - entry.cachedAt) > PROFILE_STALE_MS;
+}
+
 function getDisplayName(pubkey) {
     const profile = profileCache.get(pubkey);
     if (profile?.name) return profile.name;
