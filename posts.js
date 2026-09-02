@@ -170,6 +170,9 @@ function renderPost(event) {
                 <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
                 <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
             </button>
+            <button class="zap-button flex items-center gap-1 hover:text-amber-500 transition mr-auto" onclick="openZapModal('${event.id}', '${event.pubkey}')" title="زاب">
+                <i class="fas fa-bolt"></i> <span class="zap-count"></span>
+            </button>
         </div>
         <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
     `;
