@@ -230,7 +230,7 @@ async function saveProfile() {
         await publishToRelays(event);
 
         myProfile = { name, about, picture: pictureUrl, banner: bannerUrl, location, website };
-        profileCache.set(pk, { name, picture: pictureUrl || null, about: about || null });
+        setProfileCache(pk, { name, picture: pictureUrl || null, about: about || null });
 
         pendingAvatarFile = null;
         pendingBannerFile = null;
@@ -270,7 +270,7 @@ function loadMyProfile() {
                         location: meta.location || '',
                         website: meta.website || meta.url || ''
                     };
-                    profileCache.set(pk, { name: myProfile.name || null, picture: myProfile.picture || null, about: myProfile.about || null });
+                    setProfileCache(pk, { name: myProfile.name || null, picture: myProfile.picture || null, about: myProfile.about || null });
                     updateHeaderAvatar();
                     updateAvatarsInDom(pk);
                 } catch(e) {}
@@ -345,7 +345,11 @@ let profileFetchQueue = [];
 let profileFetchTimer = null;
 
 function fetchProfiles(pubkeys) {
-    const needed = pubkeys.filter(p => p && !profileCache.has(p));
+    // 🛠️ قبل كده كان بيتجاهل أي pubkey متسجل في الكاش خالص، للأبد. دلوقتي
+    // بنسمح بإعادة الجلب لو النسخة المحفوظة قديمة (أكتر من PROFILE_STALE_MS)
+    // — يعني أول ظهور للاسم/الصورة فوري من الكاش، وبعدين بيتحدّث في
+    // الخلفية لو حد غيّر بروفايله من ساعتها.
+    const needed = pubkeys.filter(p => p && (!profileCache.has(p) || isProfileStale(p)));
     if (!needed.length) return;
     profileFetchQueue.push(...needed);
     clearTimeout(profileFetchTimer);
@@ -358,7 +362,7 @@ function fetchProfiles(pubkeys) {
                 onevent: event => {
                     try {
                         const meta = JSON.parse(event.content || '{}');
-                        profileCache.set(event.pubkey, {
+                        setProfileCache(event.pubkey, {
                             name: meta.display_name || meta.name || null,
                             picture: meta.picture || null,
                             about: meta.about || null
@@ -713,7 +717,7 @@ function renderProfilePage(pubkey, meta, joinedTimestamp) {
         }
     }
 
-    profileCache.set(pubkey, { name, picture, about });
+    setProfileCache(pubkey, { name, picture, about });
 }
 
 function loadProfilePosts(pubkey, until) {
@@ -823,6 +827,9 @@ function renderProfilePost(event) {
                 <button class="reply-toggle-button flex items-center gap-1 hover:text-accent hover:underline transition" onclick="toggleReplies('${event.id}')" title="عرض التعليقات">
                     <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
                     <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
+                </button>
+                <button class="zap-button flex items-center gap-1 hover:text-amber-500 transition mr-auto" onclick="openZapModal('${event.id}', '${event.pubkey}')" title="زاب">
+                    <i class="fas fa-bolt"></i> <span class="zap-count"></span>
                 </button>
             </div>
             <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
