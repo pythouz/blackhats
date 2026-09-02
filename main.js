@@ -40,6 +40,10 @@ function hideAccessGate() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Pulse] بدء التشغيل');
 
+    // (أداء) تحميل الكاش المحلي للبروفايلات أول حاجة قبل أي حاجة تانية،
+    // عشان أي اسم/صورة اتشافوا قبل كده يظهروا فورًا من غير انتظار الشبكة.
+    loadProfileCacheFromStorage();
+
     const isValid = validateAdminPubkey();
 
     if (!isValid) {
