@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pulse-v6';
+const CACHE_NAME = 'pulse-v8';
 const BASE = self.registration.scope; // بيتحسب تلقائي حسب مكان السكربت
 
 // 🛠️ app.js القديم اتقسّم لـ 13 ملف (شوف README) وده كان لسه متسجل هنا
@@ -20,6 +20,8 @@ const ASSETS = [
   BASE + 'posts.js',
   BASE + 'reactions.js',
   BASE + 'rooms.js',
+  BASE + 'messages.js',
+  BASE + 'zaps.js',
   BASE + 'ui.js',
   BASE + 'main.js',
   BASE + 'icons/icon-192.png',
