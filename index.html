@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#FF6B00">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <title>Pulse — منصة المجتمع الحي</title>
+
+    <link rel="manifest" href="./manifest.json">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- DOMPurify -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/nostr-tools@2.10.0/lib/nostr.bundle.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['IBM Plex Sans Arabic', 'sans-serif']
+                    },
+                    colors: {
+                        accent: '#FF6B00',
+                        accent2: '#6C3CE1',
+                        accent3: '#00C9A7',
+                        dark: '#0E0E12',
+                        surface: '#18181E',
+                        bgLight: '#F8F6F2',
+                        bgDark: '#0E0E12',
+                        cardLight: '#FFFFFF',
+                        cardDark: '#1E1E24'
+                    }
+                }
+            }
+        };
+    </script>
+
+    <style>
+        /* ===== RESET & BASE ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            background-color: #F8F6F2;
+            color: #1A1A1A;
+            transition: background-color 0.3s, color 0.3s;
+            min-height: 100vh;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .dark body {
+            background-color: #0E0E12;
+            color: #E5E5E5;
+        }
+
+        /* ===== GLASSMORPHISM ===== */
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .dark .glass {
+            background: rgba(14, 14, 18, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* ===== AVATAR ===== */
+        .avatar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: 900;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        /* ===== UTILITY ===== */
+        .hidden {
+            display: none !important;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.35s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ===== SCROLLBAR ===== */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+
+        /* ===== SKELETON LOADING ===== */
+        .skeleton-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 1.25rem;
+            border: 1px solid rgba(0,0,0,0.06);
+        }
+        .dark .skeleton-card {
+            background: #161B22;
+            border-color: rgba(255,255,255,0.06);
+        }
+        .skeleton-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .skeleton-circle, .skeleton-line {
+            background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.11) 37%, rgba(0,0,0,0.06) 63%);
+            background-size: 400% 100%;
+            animation: skeleton-shimmer 1.4s ease infinite;
+            border-radius: 999px;
+        }
+        .dark .skeleton-circle, .dark .skeleton-line {
+            background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.14) 37%, rgba(255,255,255,0.06) 63%);
+            background-size: 400% 100%;
+        }
+        .skeleton-circle {
+            width: 2.75rem;
+            height: 2.75rem;
+            flex-shrink: 0;
+        }
+        .skeleton-line {
+            height: 0.7rem;
+        }
+        @keyframes skeleton-shimmer {
+            0% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* ===== POST CARD ===== */
+        .post-card {
+            transition: box-shadow 0.25s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            touch-action: manipulation;
+        }
+        .post-card:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+        .dark .post-card:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+        /* 🛠️ شلنا transform: translateY/scale من الكارت نفسه هنا: الكارت
+           مش زرار واحد قابل للضغط، وكانت هي دي سبب الإحساس بإن البوست
+           "عايم بيتحرك" لما تدوس على أي حاجة جواه (زي زرار اللايك) —
+           خصوصًا على الموبايل، لأن حالة :hover كانت بتفضل عالقة بعد أول
+           لمسة. زرار اللايك نفسه (.like-button:active) عنده إحساس ضغط
+           خاص بيه تحت، فده كافي لوحده يدّي "إحساس اللايك" المطلوب من غير
+           ما الكارت كله يهتز. */
+
+        /* ===== BUTTONS & INTERACTIONS ===== */
+        .like-button {
+            transition: all 0.2s ease;
+        }
+        .like-button:active {
+            transform: scale(0.85);
+        }
+
+        button {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            cursor: pointer;
+        }
+
+        /* ===== AUDIO CONTAINER (hidden) ===== */
+        #audio-container {
+            position: fixed;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+            bottom: 0;
+            left: 0;
+        }
+
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .pt-safe {
+            padding-top: env(safe-area-inset-top);
+        }
+
+        /* ===== MODAL OVERLAY ===== */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        /* ===== ROOM INPUT FIX ===== */
+        #room-input {
+            box-sizing: border-box;
+            min-width: 0;
+        }
+
+        /* ===== GRADIENT TEXT ===== */
+        .gradient-text {
+            background: linear-gradient(135deg, #FF6B00, #6C3CE1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ===== CUSTOM SHADOWS ===== */
+        .shadow-soft {
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+        }
+        .dark .shadow-soft {
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        /* ===== INPUT FOCUS ===== */
+        input:focus,
+        textarea:focus {
+            outline: none;
+            ring: 2px solid #FF6B00;
+            border-color: #FF6B00;
+        }
+
+        /* ===== TOAST ===== */
+        #toast {
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        /* ===== RESPONSIVE TWEAKS ===== */
+        @media (max-width: 640px) {
+            .glass {
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+            }
+            .post-card {
+                padding: 1rem !important;
+            }
+            .avatar.w-11.h-11 {
+                width: 2.75rem;
+                height: 2.75rem;
+                font-size: 0.9rem;
+            }
+            button {
+                padding: 0.6rem 1rem;
+            }
+            .nav-btn {
+                padding: 0.5rem 0.75rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ========== HEADER ========== -->
+    <header class="fixed top-0 w-full z-50 glass transition-colors duration-300">
+        <div class="max-w-2xl mx-auto px-2 sm:px-4 py-3 flex items-center gap-2 min-w-0">
+
+            <!-- Logo / Title -->
+            <h1 class="text-2xl sm:text-3xl font-black tracking-tight shrink-0">
+                <span class="gradient-text">Pulse</span>
+            </h1>
+
+            <!-- Search bar (middle) -->
+            <div class="flex-1 min-w-0 relative">
+                <input id="search-input" type="text" placeholder="بحث بكلمة، هاشتاج، أو npub..."
+                       onkeydown="if(event.key==='Enter') searchUser()"
+                       class="w-full bg-gray-100/80 dark:bg-surface/80 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:text-white">
+                <button onclick="searchUser()" class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-accent transition">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+
+            <!-- Right side: Profile avatar -->
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+
+                <!-- 🔔 الإشعارات: لايكات وردود على منشوراتك -->
+                <button onclick="toggleNotificationsPanel()" id="notif-bell-btn"
+                        class="relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                        title="الإشعارات">
+                    <i class="far fa-bell text-lg"></i>
+                    <span id="notif-badge"
+                          class="hidden absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">0</span>
+                </button>
+
+                <!-- Profile avatar -->
+                <button onclick="openMyProfilePage()"
+                        class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-accent to-accent2 flex items-center justify-center shrink-0 shadow-md hover:shadow-lg transition">
+                    <img id="header-avatar-img" src="" alt="" class="hidden w-full h-full object-cover">
+                    <span id="header-avatar-fallback" class="text-white text-sm font-black">P</span>
+                </button>
+
+            </div>
+        </div>
+    </header>
+
+    <!-- ========== NOTIFICATIONS PANEL ========== -->
+    <div id="notifications-panel"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-start justify-center p-4" onclick="if(event.target===this) toggleNotificationsPanel()">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 fade-in mt-16 max-h-[75vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between p-5 pb-3 shrink-0">
+                <h3 class="font-bold text-lg dark:text-white">الإشعارات</h3>
+                <button onclick="toggleNotificationsPanel()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <div id="notifications-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
+        </div>
+    </div>
+
+    <!-- ========== BOOKMARKS PANEL ========== -->
+    <div id="bookmarks-panel"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-start justify-center p-4" onclick="if(event.target===this) closeBookmarksPanel()">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 fade-in mt-16 max-h-[75vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between p-5 pb-3 shrink-0">
+                <h3 class="font-bold text-lg dark:text-white">🔖 المحفوظات</h3>
+                <button onclick="closeBookmarksPanel()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <div id="bookmarks-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
+        </div>
+    </div>
+
+    <!-- ========== SEARCH RESULTS PANEL ========== -->
+    <div id="search-results-panel"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-start justify-center p-4" onclick="if(event.target===this) closeSearchResults()">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 fade-in mt-16 max-h-[75vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between p-5 pb-3 shrink-0">
+                <h3 id="search-results-title" class="font-bold text-lg dark:text-white truncate">نتائج البحث</h3>
+                <button onclick="closeSearchResults()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition shrink-0">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <div id="search-results-list" class="overflow-y-auto px-3 pb-4 space-y-1"></div>
+        </div>
+    </div>
+
+    <!-- ========== INCOMING CALL OVERLAY ========== -->
+    <div id="incoming-call-overlay" class="hidden fixed inset-0 z-[110] bg-dark/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-white">
+        <p class="text-sm text-gray-300 mb-2">مكالمة واردة...</p>
+        <div id="incoming-call-avatar" class="mb-4 animate-pulse"></div>
+        <p id="incoming-call-name" class="text-xl font-bold mb-10"></p>
+        <div class="flex items-center gap-10">
+            <div class="flex flex-col items-center gap-2">
+                <button onclick="rejectDmCall()" class="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                    <i class="fas fa-phone-slash text-2xl"></i>
+                </button>
+                <span class="text-xs text-gray-300">رفض</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+                <button onclick="acceptDmCall()" class="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                    <i class="fas fa-phone text-2xl"></i>
+                </button>
+                <span class="text-xs text-gray-300">قبول</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== ACTIVE DM CALL OVERLAY ========== -->
+    <div id="dm-call-overlay" class="hidden fixed inset-0 z-[105] bg-dark/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-white">
+        <div id="dm-call-avatar" class="mb-4"></div>
+        <p id="dm-call-name" class="text-xl font-bold mb-1"></p>
+        <p id="dm-call-status" class="text-sm text-gray-300 mb-1">جاري الاتصال...</p>
+        <p id="dm-call-timer" class="hidden text-sm text-gray-300 mb-8 font-mono">00:00</p>
+        <div class="flex items-center gap-6 mt-6">
+            <button id="dm-call-mute-btn" onclick="toggleDmMute()"
+                    class="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center hover:bg-white/25 transition">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button onclick="hangupDmCall()" class="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg hover:opacity-90 transition">
+                <i class="fas fa-phone-slash text-2xl"></i>
+            </button>
+        </div>
+        <audio id="dm-call-audio" autoplay class="hidden"></audio>
+    </div>
+
+    <!-- ========== SETTINGS PANEL (اللوحة المنبثقة القديمة - للتوافق) ========== -->
+    <div id="settings-panel"
+         class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-[60] w-[min(92vw,28rem)] bg-white/95 dark:bg-surface/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6 fade-in">
+        <div class="flex items-center justify-between mb-5">
+            <h3 class="font-bold text-xl dark:text-white">الإعدادات</h3>
+            <button onclick="toggleSettings()"
+                    class="w-9 h-9 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                <i class="fas fa-times text-gray-500 dark:text-gray-400"></i>
+            </button>
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
+            المفتاح الخاص يُخزَّن محلياً. استخدم امتداد Nostr (NIP-07) لأمان أفضل.
+            صدّر مفتاحك واحفظه في مكان آمن.
+        </p>
+        <div class="space-y-3">
+            <button onclick="openProfileModal()"
+                    class="w-full flex items-center justify-center gap-3 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 py-3 rounded-2xl text-sm font-medium transition">
+                <i class="fas fa-user-edit"></i> تعديل الملف الشخصي
+            </button>
+            <button onclick="copyNpub()"
+                    class="w-full flex items-center justify-center gap-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 py-3 rounded-2xl text-sm font-medium transition dark:text-white">
+                <i class="fas fa-copy"></i> نسخ npub
+            </button>
+            <button onclick="exportKey()"
+                    class="w-full flex items-center justify-center gap-3 bg-orange-50 dark:bg-orange-500/10 text-accent hover:bg-orange-100 dark:hover:bg-orange-500/20 py-3 rounded-2xl text-sm font-medium transition">
+                <i class="fas fa-key"></i> تصدير المفتاح الخاص (nsec)
+            </button>
+            <button onclick="importKey()"
+                    class="w-full flex items-center justify-center gap-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 py-3 rounded-2xl text-sm font-medium transition dark:text-white">
+                <i class="fas fa-file-import"></i> استيراد مفتاح
+            </button>
+        </div>
+        <p class="text-[11px] text-red-500/80 mt-5 leading-relaxed">
+            ⚠️ لا تشارك مفتاحك الخاص (nsec) مع أي شخص. من يملكه يملك حسابك.
+        </p>
+    </div>
+
+    <!-- ========== EDIT PROFILE MODAL ========== -->
+    <div id="profile-modal"
+         class="hidden fixed inset-0 z-[90] modal-overlay flex items-end sm:items-center justify-center">
+        <div class="bg-white dark:bg-surface w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700">
+
+            <!-- Top bar -->
+            <div class="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 bg-white/90 dark:bg-surface/90 backdrop-blur border-b border-gray-100 dark:border-gray-800">
+                <div class="flex items-center gap-3">
+                    <button type="button" onclick="closeProfileModal()"
+                            class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                        <i class="fas fa-times text-gray-700 dark:text-gray-200"></i>
+                    </button>
+                    <h3 class="font-bold text-lg dark:text-white">تعديل الملف الشخصي</h3>
+                </div>
+                <button type="button" id="btn-save-profile" onclick="saveProfile()"
+                        class="bg-gradient-to-r from-accent to-accent2 text-white font-bold text-sm px-6 py-2 rounded-full hover:opacity-90 transition disabled:opacity-50">
+                    حفظ
+                </button>
+            </div>
+
+            <!-- Banner -->
+            <div class="relative w-full h-40 sm:h-48 bg-gradient-to-r from-gray-300 to-gray-400 dark:from-gray-700 dark:to-gray-800 overflow-hidden">
+                <img id="profile-banner-img" src="" alt="" class="hidden w-full h-full object-cover">
+                <div id="profile-banner-empty" class="absolute inset-0 bg-gradient-to-br from-gray-400 to-gray-600 dark:from-gray-700 dark:to-gray-900"></div>
+
+                <div class="absolute inset-0 flex items-center justify-center gap-3 bg-black/30">
+                    <label for="banner-file-input"
+                           class="w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center cursor-pointer transition">
+                        <i class="fas fa-camera"></i>
+                    </label>
+                    <button type="button" id="btn-remove-banner" onclick="removeBanner()"
+                            class="hidden w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white items-center justify-center transition">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <input id="banner-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="onBannerSelected(event)">
+            </div>
+
+            <!-- Avatar -->
+            <div class="relative px-5 -mt-14 mb-3 flex justify-between items-end">
+                <div class="relative">
+                    <div class="w-28 h-28 sm:w-32 sm:h-32 rounded-full border-4 border-white dark:border-surface bg-gradient-to-br from-accent to-accent2 overflow-hidden flex items-center justify-center text-white text-4xl font-black shadow-lg">
+                        <img id="profile-avatar-img" src="" alt="" class="hidden w-full h-full object-cover">
+                        <span id="profile-avatar-letter">P</span>
+                    </div>
+                    <label for="avatar-file-input"
+                           class="absolute inset-0 m-auto w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center cursor-pointer transition">
+                        <i class="fas fa-camera text-sm"></i>
+                    </label>
+                    <input id="avatar-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="onAvatarSelected(event)">
+                </div>
+            </div>
+
+            <!-- Fields -->
+            <div class="px-5 pb-6 space-y-5">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">الاسم</label>
+                    <input id="profile-name" type="text" maxlength="50" placeholder="اسمك"
+                           oninput="onProfileNameInput()"
+                           class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm transition">
+                    <div class="text-[11px] text-gray-400 text-left mt-1"><span id="name-count">0</span>/50</div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">النبذة</label>
+                    <textarea id="profile-about" rows="3" maxlength="160" placeholder="عرّف بنفسك"
+                              oninput="onProfileAboutInput()"
+                              class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm resize-none transition"></textarea>
+                    <div class="text-[11px] text-gray-400 text-left mt-1"><span id="about-count">0</span>/160</div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">الموقع (اختياري)</label>
+                    <input id="profile-location" type="text" maxlength="30" placeholder="المدينة، البلد"
+                           class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">الموقع الإلكتروني (اختياري)</label>
+                    <input id="profile-website" type="url" maxlength="100" placeholder="https://"
+                           class="w-full px-4 py-3 rounded-2xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none focus:border-accent dark:text-white text-sm transition">
+                </div>
+
+                <p id="profile-upload-status" class="text-xs text-gray-400 text-center hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== MAIN CONTENT ========== -->
+    <main class="max-w-2xl mx-auto pt-20 pb-24 px-4">
+
+        <!-- ===== TIMELINE VIEW ===== -->
+        <div id="view-timeline" class="view-section fade-in">
+
+            <!-- Compose card -->
+            <div class="bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft mb-6 border border-gray-100 dark:border-gray-800 transition">
+                <textarea id="post-input" rows="3" placeholder="بماذا تفكر؟ شارك المجتمع..."
+                          class="w-full bg-transparent border-none focus:ring-0 text-lg resize-none placeholder-gray-400 dark:text-white outline-none"></textarea>
+
+                <div id="attachment-preview" class="hidden flex flex-wrap gap-2 mt-2"></div>
+
+                <div class="flex justify-between items-center mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <div class="flex items-center gap-3">
+                        <button onclick="triggerFileUpload()" class="text-gray-400 hover:text-accent transition text-lg" title="إرفاق ملف">
+                            <i class="fas fa-paperclip"></i>
+                        </button>
+                        <input type="file" id="file-input" multiple accept="image/*,video/*" class="hidden" onchange="handleFileSelect(event)">
+                        <span class="text-xs text-gray-400 dark:text-gray-500">صور / فيديو</span>
+                    </div>
+                    <button onclick="publishPost()"
+                            class="bg-gradient-to-r from-accent to-accent2 hover:opacity-90 text-white px-7 py-2.5 rounded-full font-bold transition transform active:scale-95 shadow-md shadow-orange-500/25">
+                        نشر <i class="fas fa-paper-plane mr-1"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Feed -->
+            <div id="feed-container" class="space-y-5"></div>
+
+            <!-- Loading more -->
+            <div id="load-more-container" class="text-center py-4 hidden">
+                <button onclick="loadMorePosts()" 
+                        class="bg-accent text-white px-6 py-3 rounded-full font-bold transition hover:opacity-90 active:scale-95 shadow-md">
+                    تحميل المزيد
+                </button>
+                <div id="loading-more-spinner" class="hidden mt-2 text-gray-400">
+                    <i class="fas fa-circle-notch fa-spin"></i> جاري التحميل...
+                </div>
+            </div>
+
+            <!-- Loading (skeleton) -->
+            <div id="loading-feed" class="space-y-5">
+                <div class="skeleton-card"><div class="skeleton-row"><div class="skeleton-circle"></div><div class="flex-1 space-y-2"><div class="skeleton-line w-1/3"></div><div class="skeleton-line w-1/5"></div></div></div><div class="skeleton-line w-full mt-4"></div><div class="skeleton-line w-4/5 mt-2"></div></div>
+                <div class="skeleton-card"><div class="skeleton-row"><div class="skeleton-circle"></div><div class="flex-1 space-y-2"><div class="skeleton-line w-1/4"></div><div class="skeleton-line w-1/6"></div></div></div><div class="skeleton-line w-full mt-4"></div><div class="skeleton-line w-3/5 mt-2"></div></div>
+                <div class="skeleton-card"><div class="skeleton-row"><div class="skeleton-circle"></div><div class="flex-1 space-y-2"><div class="skeleton-line w-1/3"></div><div class="skeleton-line w-1/5"></div></div></div><div class="skeleton-line w-full mt-4"></div><div class="skeleton-line w-2/3 mt-2"></div></div>
+            </div>
+
+        </div>
+
+        <!-- ===== ROOMS VIEW ===== -->
+        <div id="view-rooms" class="view-section hidden fade-in">
+
+            <!-- Join card -->
+            <div class="bg-gradient-to-br from-accent via-accent2 to-accent3 rounded-3xl p-6 text-white shadow-xl mb-6">
+                <h2 class="text-3xl font-black mb-2">🎙️ غرف صوتية</h2>
+                <p class="opacity-90 mb-5 text-sm leading-relaxed">
+                    تواصل مع المجتمع صوتياً بشكل لامركزي عبر WebRTC.
+                    يُفضّل ألا يتجاوز عدد المشاركين 5–6 أشخاص.
+                </p>
+
+                <div class="flex flex-col sm:flex-row gap-3 w-full">
+                    <input id="room-input" type="text" autocomplete="off" placeholder="اسم الغرفة (مثال: tech)"
+                           class="w-full flex-1 px-5 py-3.5 rounded-2xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-white placeholder-gray-500">
+                    <button id="btn-join-room" onclick="toggleRoom()"
+                            class="w-full sm:w-auto shrink-0 bg-white text-accent font-black px-8 py-3.5 rounded-2xl hover:bg-gray-100 transition shadow-md">
+                        دخول
+                    </button>
+                </div>
+            </div>
+
+            <!-- Live rooms -->
+            <div id="live-rooms-section" class="bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-bold text-gray-700 dark:text-gray-200">الغرف المباشرة الآن</h3>
+                    <i class="fas fa-broadcast-tower text-accent text-lg"></i>
+                </div>
+                <div id="live-rooms-list" class="space-y-2"></div>
+                <p id="live-rooms-empty" class="text-xs text-gray-400 text-center py-5">لا توجد غرف مفتوحة. ابدأ واحدة جديدة 🎙️</p>
+            </div>
+
+            <!-- Active room UI -->
+            <div id="active-room-ui"
+                 class="hidden bg-white dark:bg-cardDark rounded-3xl p-6 shadow-soft border border-gray-100 dark:border-gray-800 text-center">
+                <div class="w-24 h-24 bg-gradient-to-br from-accent to-accent2/20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-lg">
+                    <i class="fas fa-microphone text-4xl text-accent animate-pulse"></i>
+                </div>
+                <h3 id="current-room-name" class="text-2xl font-bold mb-1 dark:text-white">اسم الغرفة</h3>
+                <p class="text-sm text-gray-400 mb-2">أنت متصل الآن. المايكروفون نشط.</p>
+                <p id="vad-status" class="text-xs text-gray-400 mb-6">الحالة: متصل</p>
+
+                <div class="flex justify-center gap-5 mb-6">
+                    <button onclick="toggleMute()" id="btn-mute"
+                            class="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-2xl hover:bg-gray-200 dark:hover:bg-gray-700 transition dark:text-white shadow-md">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <button onclick="toggleRoom()"
+                            class="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center text-2xl hover:bg-red-500/20 transition shadow-md">
+                        <i class="fas fa-phone-slash"></i>
+                    </button>
+                </div>
+
+                <div class="text-right">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-xs text-gray-400 font-bold">المشاركون:</p>
+                        <span id="peer-count" class="text-xs text-gray-400">الأشخاص: 0</span>
+                    </div>
+                    <div id="peers-list" class="space-y-2 text-sm text-gray-600 dark:text-gray-300"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ===== PROFILE VIEW (جديد) ===== -->
+        <div id="view-profile" class="view-section hidden fade-in">
+            <div class="flex items-center gap-3 mb-4">
+                <button onclick="closeProfilePage()" class="w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-arrow-right text-xl text-gray-700 dark:text-gray-200"></i>
+                </button>
+                <h2 class="text-xl font-bold dark:text-white">الملف الشخصي</h2>
+            </div>
+
+            <div class="bg-white dark:bg-cardDark rounded-3xl shadow-soft border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <!-- Cover image -->
+                <div class="relative w-full h-48 bg-gradient-to-r from-gray-300 to-gray-400 dark:from-gray-700 dark:to-gray-800">
+                    <img id="profile-cover-img" src="" alt="" class="w-full h-full object-cover hidden">
+                    <div id="profile-cover-empty" class="w-full h-full bg-gradient-to-br from-accent/30 to-accent2/30"></div>
+                </div>
+                <!-- Avatar and info -->
+                <div class="relative px-5 -mt-16 mb-2 flex items-end gap-4">
+                    <div class="w-28 h-28 rounded-full border-4 border-white dark:border-surface bg-gradient-to-br from-accent to-accent2 overflow-hidden flex items-center justify-center text-white text-4xl font-black shadow-lg">
+                        <img id="profile-page-avatar" src="" alt="" class="hidden w-full h-full object-cover">
+                        <span id="profile-page-avatar-letter" class="text-4xl font-black">P</span>
+                    </div>
+                    <div class="flex-1 min-w-0 pb-2">
+                        <div class="flex items-center justify-between gap-3">
+                            <h2 id="profile-page-name" class="text-2xl font-bold dark:text-white truncate">اسم المستخدم</h2>
+                            <div id="profile-follow-btn-wrap" class="hidden flex-shrink-0"></div>
+                        </div>
+                        <p id="profile-page-npub" class="text-sm text-gray-400 font-mono truncate">npub...</p>
+                        <div id="profile-follow-counts" class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mt-1"></div>
+                    </div>
+                </div>
+                <!-- Bio, location, website -->
+                <div class="px-5 pb-4 space-y-2">
+                    <p id="profile-page-about" class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"></p>
+                    <div class="flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400">
+                        <span id="profile-page-location" class="hidden"><i class="fas fa-map-pin ml-1"></i> <span></span></span>
+                        <span id="profile-page-website" class="hidden"><i class="fas fa-link ml-1"></i> <a href="#" target="_blank" rel="noopener" class="text-accent hover:underline"></a></span>
+                    </div>
+                    <div class="text-xs text-gray-400">
+                        انضم في <span id="profile-page-joined"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Posts section -->
+            <div class="mt-6">
+                <h3 class="text-sm font-bold text-gray-500 dark:text-gray-400 mb-3">منشورات</h3>
+                <div id="profile-posts-container" class="space-y-5"></div>
+                <div id="profile-load-more-container" class="text-center py-4 hidden">
+                    <button onclick="loadMoreProfilePosts()" class="bg-accent text-white px-6 py-3 rounded-full font-bold transition hover:opacity-90 active:scale-95 shadow-md">
+                        تحميل المزيد
+                    </button>
+                </div>
+                <div id="profile-loading-posts" class="text-center py-6 text-gray-400 hidden">
+                    <i class="fas fa-circle-notch fa-spin text-2xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== MESSAGES VIEW ===== -->
+        <div id="view-messages" class="view-section hidden fade-in">
+            <!-- قائمة المحادثات -->
+            <div id="conversations-list-view">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold dark:text-white">الرسائل</h2>
+                    <button onclick="promptNewChat()"
+                            class="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center shadow-md hover:opacity-90 transition">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div id="conversations-list" class="space-y-1"></div>
+            </div>
+
+            <!-- شاشة محادثة مفتوحة -->
+            <div id="chat-thread-view" class="hidden fixed inset-0 z-[75] bg-white dark:bg-dark flex flex-col">
+                <div class="flex items-center gap-3 p-4 border-b border-gray-100 dark:border-gray-800 shrink-0 pt-safe">
+                    <button onclick="closeChat()" class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                        <i class="fas fa-arrow-right dark:text-white"></i>
+                    </button>
+                    <div id="chat-thread-avatar" class="flex-shrink-0"></div>
+                    <p id="chat-thread-name" class="font-bold dark:text-white flex-1 truncate"></p>
+                    <button onclick="startDmCall(activeChatPubkey)"
+                            class="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center hover:bg-accent/20 transition">
+                        <i class="fas fa-phone"></i>
+                    </button>
+                </div>
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-4"></div>
+                <div class="p-3 border-t border-gray-100 dark:border-gray-800 pb-safe shrink-0">
+                    <div class="flex items-end gap-2">
+                        <textarea id="chat-input" rows="1" placeholder="اكتب رسالة..."
+                                  onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendDirectMessage(); }"
+                                  class="flex-1 bg-gray-100 dark:bg-surface rounded-2xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent resize-none max-h-28 dark:text-white"></textarea>
+                        <button onclick="sendDirectMessage()"
+                                class="w-11 h-11 rounded-full bg-accent text-white flex items-center justify-center shadow-md hover:opacity-90 transition shrink-0">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TASKS / SERVICES VIEW ===== -->
+        <div id="view-tasks" class="view-section hidden fade-in">
+            <h2 class="text-2xl font-bold mb-1 dark:text-white">المهام والخدمات</h2>
+            <p class="text-sm text-gray-400 mb-5">خدمات إضافية جوه التطبيق</p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- تحميل فيديو -->
+                <button onclick="openVideoDownloader()"
+                        class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 hover:shadow-lg transition group">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center mb-3 group-hover:scale-105 transition">
+                        <i class="fas fa-download text-white text-xl"></i>
+                    </div>
+                    <h3 class="font-bold dark:text-white mb-1">تحميل فيديو وصوت</h3>
+                    <p class="text-xs text-gray-400 leading-relaxed">حمّل من يوتيوب، إنستجرام، تيك توك، وغيرهم برابط واحد</p>
+                </button>
+
+                <!-- تعلم الإنجليزية (قريبًا) -->
+                <div class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 opacity-60">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center mb-3">
+                        <i class="fas fa-language text-white text-xl"></i>
+                    </div>
+                    <h3 class="font-bold dark:text-white mb-1">تعلّم الإنجليزية</h3>
+                    <p class="text-xs text-gray-400 leading-relaxed">قريبًا</p>
+                </div>
+
+                <!-- تعلم المحاسبة (قريبًا) -->
+                <div class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 opacity-60">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mb-3">
+                        <i class="fas fa-calculator text-white text-xl"></i>
+                    </div>
+                    <h3 class="font-bold dark:text-white mb-1">تعلّم المحاسبة</h3>
+                    <p class="text-xs text-gray-400 leading-relaxed">قريبًا</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== SETTINGS VIEW ===== -->
+        <div id="view-settings" class="view-section hidden fade-in">
+            <div class="bg-white dark:bg-cardDark rounded-3xl p-6 shadow-soft border border-gray-100 dark:border-gray-800">
+                <h2 class="text-2xl font-bold mb-6 dark:text-white">⚙️ الإعدادات</h2>
+
+                <!-- Theme toggle -->
+                <div class="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700">
+                    <div>
+                        <p class="font-medium dark:text-white">المظهر</p>
+                        <p class="text-xs text-gray-400">الوضع الليلي / النهاري</p>
+                    </div>
+                    <button onclick="toggleTheme()"
+                            class="px-4 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                        <span class="dark:hidden">🌙 ليلي</span>
+                        <span class="hidden dark:inline">☀️ نهاري</span>
+                    </button>
+                </div>
+
+                <!-- Edit profile -->
+                <button onclick="openProfileModal()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
+                    <i class="fas fa-user-edit text-accent w-6"></i>
+                    <span class="dark:text-white">تعديل الملف الشخصي</span>
+                </button>
+
+                <!-- Bookmarks -->
+                <button onclick="openBookmarksPanel()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
+                    <i class="fas fa-bookmark text-accent2 w-6"></i>
+                    <span class="dark:text-white">المحفوظات</span>
+                </button>
+
+                <!-- Copy npub -->
+                <button onclick="copyNpub()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
+                    <i class="fas fa-copy text-blue-500 w-6"></i>
+                    <span class="dark:text-white">نسخ npub</span>
+                </button>
+
+                <!-- Export private key -->
+                <button onclick="exportKey()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
+                    <i class="fas fa-key text-orange-500 w-6"></i>
+                    <span class="dark:text-white">تصدير المفتاح الخاص (nsec)</span>
+                </button>
+
+                <!-- Logout button -->
+                <button onclick="logout()"
+                        class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition rounded-lg px-2">
+                    <i class="fas fa-sign-out-alt text-red-500 w-6"></i>
+                    <span class="dark:text-white text-red-500">تسجيل الخروج</span>
+                </button>
+
+                <!-- Admin panel (يظهر فقط للمدير) -->
+                <button id="settings-admin-btn" onclick="openAdminPanel()"
+                        class="hidden w-full flex items-center gap-3 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2 mt-2 border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <i class="fas fa-shield-alt text-red-500 w-6"></i>
+                    <span class="dark:text-white">👮 لوحة الإدارة (حظر المستخدمين)</span>
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- ========== REPLY MODAL ========== -->
+    <div id="reply-modal"
+         class="hidden fixed inset-0 z-[80] modal-overlay flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg dark:text-white">كتابة رد</h3>
+                <button onclick="closeReplyModal()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <textarea id="reply-input" rows="4" placeholder="اكتب ردك هنا..."
+                      class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-sm resize-none outline-none focus:ring-2 focus:ring-accent dark:text-white"></textarea>
+            <div class="flex justify-end gap-3 mt-4">
+                <button onclick="closeReplyModal()"
+                        class="px-5 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition">إلغاء</button>
+                <button onclick="confirmReply()"
+                        class="px-6 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-accent to-accent2 text-white hover:opacity-90 transition">إرسال الرد</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== ZAP MODAL ========== -->
+    <div id="zap-modal"
+         class="hidden fixed inset-0 z-[80] modal-overlay flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg dark:text-white">⚡ إرسال زاب</h3>
+                <button onclick="closeZapModal()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 mb-4">
+                <button onclick="selectZapAmount(21)" class="py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-white text-sm font-bold hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">21</button>
+                <button onclick="selectZapAmount(100)" class="py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-white text-sm font-bold hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">100</button>
+                <button onclick="selectZapAmount(500)" class="py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-white text-sm font-bold hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">500</button>
+                <button onclick="selectZapAmount(1000)" class="py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-white text-sm font-bold hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">1K</button>
+            </div>
+
+            <div class="relative mb-4">
+                <input id="zap-amount-input" type="number" min="1" value="21"
+                       class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 pl-16 text-lg font-bold outline-none focus:ring-2 focus:ring-amber-500 dark:text-white text-center">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">ساتوشي</span>
+            </div>
+
+            <button id="zap-send-btn" onclick="sendZap()"
+                    class="w-full py-3 rounded-2xl text-sm font-bold bg-gradient-to-r from-amber-400 to-amber-600 text-white hover:opacity-90 transition active:scale-95">
+                ⚡ إرسال زاب
+            </button>
+
+            <!-- تظهر لو تعذر الدفع التلقائي (بدون امتداد WebLN) -->
+            <div id="zap-invoice-box" class="hidden mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <p class="text-xs text-gray-400 mb-2">ادفع الفاتورة دي بأي محفظة Lightning:</p>
+                <a id="zap-invoice-link" href="#"
+                   class="block w-full text-center py-2.5 rounded-xl bg-amber-500 text-white text-sm font-bold hover:opacity-90 transition mb-2">
+                    <i class="fas fa-bolt"></i> فتح في محفظة Lightning
+                </a>
+                <div class="flex gap-2">
+                    <input id="zap-invoice-text" readonly
+                           class="flex-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs font-mono dark:text-white truncate">
+                    <button onclick="copyZapInvoice()" class="px-3 rounded-xl bg-gray-100 dark:bg-gray-800 text-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== VIDEO DOWNLOADER MODAL ========== -->
+    <div id="video-downloader-modal"
+         class="hidden fixed inset-0 z-[80] modal-overlay flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg dark:text-white">⬇️ تحميل فيديو / صوت</h3>
+                <button onclick="closeVideoDownloader()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+
+            <input id="dl-url-input" type="url" placeholder="الصق رابط الفيديو هنا..."
+                   class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3.5 text-sm outline-none focus:ring-2 focus:ring-accent dark:text-white mb-3" dir="ltr">
+
+            <div class="flex gap-2 mb-4">
+                <button id="dl-type-video" onclick="selectDownloadType('video')"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-bold bg-accent text-white transition">
+                    <i class="fas fa-video"></i> فيديو
+                </button>
+                <button id="dl-type-audio" onclick="selectDownloadType('audio')"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 dark:bg-gray-800 dark:text-white transition">
+                    <i class="fas fa-music"></i> صوت بس
+                </button>
+            </div>
+
+            <button id="dl-submit-btn" onclick="submitVideoDownload()"
+                    class="w-full py-3 rounded-2xl text-sm font-bold bg-gradient-to-r from-rose-400 to-rose-600 text-white hover:opacity-90 transition active:scale-95">
+                <i class="fas fa-download"></i> تحميل
+            </button>
+
+            <!-- حالة التحميل -->
+            <div id="dl-loading" class="hidden text-center py-6">
+                <i class="fas fa-circle-notch fa-spin text-2xl text-accent"></i>
+                <p class="text-xs text-gray-400 mt-2">جاري المعالجة... ممكن ياخد شوية وقت حسب حجم الفيديو</p>
+            </div>
+
+            <!-- النتيجة -->
+            <div id="dl-result" class="hidden mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 text-center">
+                <p id="dl-result-title" class="text-sm font-bold dark:text-white mb-1 truncate"></p>
+                <p id="dl-result-size" class="text-xs text-gray-400 mb-3"></p>
+                <a id="dl-result-link" href="#" download
+                   class="block w-full text-center py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:opacity-90 transition">
+                    <i class="fas fa-file-download"></i> حفظ الملف
+                </a>
+            </div>
+
+            <!-- خطأ -->
+            <div id="dl-error" class="hidden mt-4 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm text-center"></div>
+        </div>
+    </div>
+
+    <!-- ========== EDIT MODAL ========== -->
+    <div id="edit-modal"
+         class="hidden fixed inset-0 z-[85] modal-overlay flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg dark:text-white">تعديل المنشور</h3>
+                <button onclick="closeEditModal()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <textarea id="edit-input" rows="5"
+                      class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-sm resize-none outline-none focus:ring-2 focus:ring-accent dark:text-white"></textarea>
+
+            <div id="edit-attachment-preview" class="hidden flex flex-wrap gap-2 mt-2"></div>
+
+            <div class="flex items-center justify-between mt-2">
+                <button onclick="triggerEditFileUpload()" class="text-gray-400 hover:text-accent transition text-lg" title="إرفاق صورة/فيديو">
+                    <i class="fas fa-paperclip"></i>
+                </button>
+                <input type="file" id="edit-file-input" multiple accept="image/*,video/*" class="hidden" onchange="handleEditFileSelect(event)">
+            </div>
+
+            <div class="flex justify-end gap-3 mt-4">
+                <button onclick="closeEditModal()"
+                        class="px-5 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition">إلغاء</button>
+                <button onclick="confirmEdit()"
+                        class="px-6 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:opacity-90 transition">حفظ التعديل</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== BOTTOM NAV ========== -->
+    <nav class="fixed bottom-0 w-full glass z-50 pb-safe transition-colors duration-300">
+        <div class="max-w-2xl mx-auto flex justify-around py-3">
+
+            <button onclick="switchView('timeline')" id="nav-timeline"
+                    class="nav-btn active flex flex-col items-center gap-1 text-accent transition">
+                <i class="fas fa-home text-2xl"></i>
+                <span class="text-xs font-bold">الرئيسية</span>
+            </button>
+
+            <button onclick="switchView('rooms')" id="nav-rooms"
+                    class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-microphone-lines text-2xl"></i>
+                <span class="text-xs font-bold">غرف صوتية</span>
+            </button>
+
+            <button onclick="switchView('messages')" id="nav-messages"
+                    class="nav-btn relative flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-comment-dots text-2xl"></i>
+                <span id="nav-dm-badge" class="hidden absolute top-0 left-1/2 translate-x-3 -translate-y-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">0</span>
+                <span class="text-xs font-bold">الرسائل</span>
+            </button>
+
+            <button onclick="switchView('tasks')" id="nav-tasks"
+                    class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-layer-group text-2xl"></i>
+                <span class="text-xs font-bold">المهام</span>
+            </button>
+
+            <button onclick="switchView('settings')" id="nav-settings"
+                    class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-accent transition">
+                <i class="fas fa-sliders-h text-2xl"></i>
+                <span class="text-xs font-bold">إعدادات</span>
+            </button>
+
+        </div>
+    </nav>
+
+    <!-- ========== TOAST ========== -->
+    <div id="toast"
+         class="fixed top-24 left-1/2 transform -translate-x-1/2 bg-dark/90 dark:bg-white/90 backdrop-blur-xl text-white dark:text-dark px-6 py-3 rounded-full shadow-2xl z-[100] hidden transition-all duration-300 flex items-center gap-3 text-sm">
+        <i id="toast-icon" class="fas fa-check-circle text-green-400 dark:text-green-600"></i>
+        <span id="toast-msg" class="dark:text-dark">تم بنجاح</span>
+    </div>
+
+    <!-- ========== AUTH GATE (يتم إنشاؤه ديناميكياً) ========== -->
+    <div id="auth-gate" class="hidden"></div>
+
+    <!-- ========== AUDIO CONTAINER ========== -->
+    <div id="audio-container" aria-hidden="true"></div>
+
+    <!-- ========== SCRIPTS ========== -->
+    <script src="./config.js"></script>
+    <script src="./state.js"></script>
+    <script src="./utils.js"></script>
+    <script src="./auth.js"></script>
+    <script src="./registration.js"></script>
+    <script src="./profile.js"></script>
+    <script src="./algorithm.js"></script>
+    <script src="./media.js"></script>
+    <script src="./posts.js"></script>
+    <script src="./reactions.js"></script>
+    <script src="./rooms.js"></script>
+    <script src="./messages.js"></script>
+    <script src="./zaps.js"></script>
+    <script src="./bookmarks-mute.js"></script>
+    <script src="./tasks.js"></script>
+    <script src="./ui.js"></script>
+    <script src="./main.js"></script>
+
+</body>
+</html>
