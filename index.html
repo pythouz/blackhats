@@ -744,6 +744,7 @@
                 <div class="p-3 border-t border-gray-100 dark:border-gray-800 pb-safe shrink-0">
                     <div class="flex items-end gap-2">
                         <textarea id="chat-input" rows="1" placeholder="اكتب رسالة..."
+                                  oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,112)+'px';"
                                   onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendDirectMessage(); }"
                                   class="flex-1 bg-gray-100 dark:bg-surface rounded-2xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent resize-none max-h-28 dark:text-white"></textarea>
                         <button onclick="sendDirectMessage()"
@@ -761,15 +762,14 @@
             <p class="text-sm text-gray-400 mb-5">خدمات إضافية جوه التطبيق</p>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <!-- تحميل فيديو -->
-                <button onclick="openVideoDownloader()"
-                        class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 hover:shadow-lg transition group">
-                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center mb-3 group-hover:scale-105 transition">
+                <!-- تحميل فيديو (قريبًا لحد ما يتظبط الاستضافة) -->
+                <div class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 opacity-60">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center mb-3">
                         <i class="fas fa-download text-white text-xl"></i>
                     </div>
                     <h3 class="font-bold dark:text-white mb-1">تحميل فيديو وصوت</h3>
-                    <p class="text-xs text-gray-400 leading-relaxed">حمّل من يوتيوب، إنستجرام، تيك توك، وغيرهم برابط واحد</p>
-                </button>
+                    <p class="text-xs text-gray-400 leading-relaxed">قريبًا</p>
+                </div>
 
                 <!-- تعلم الإنجليزية (قريبًا) -->
                 <div class="text-right bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 opacity-60">
