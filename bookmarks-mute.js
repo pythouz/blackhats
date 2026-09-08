@@ -40,6 +40,12 @@ function refreshBookmarkButtons() {
 // المحفوظات
 // ============================
 
+async function publishBookmarksList() {
+    const tags = Array.from(bookmarkedPostIds).map(id => ['e', id]);
+    const event = await signEvent({ kind: BOOKMARKS_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: '' });
+    await publishToRelays(event);
+}
+
 async function toggleBookmark(postId) {
     if (!pk) { showToast('لا توجد هوية', 'error'); return; }
     const wasBookmarked = bookmarkedPostIds.has(postId);
@@ -48,9 +54,7 @@ async function toggleBookmark(postId) {
     showToast(wasBookmarked ? 'اتشال من المحفوظات' : 'اتحفظ ✅', 'success');
 
     try {
-        const tags = Array.from(bookmarkedPostIds).map(id => ['e', id]);
-        const event = await signEvent({ kind: BOOKMARKS_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: '' });
-        await publishToRelays(event);
+        await publishBookmarksList();
     } catch (e) {
         if (wasBookmarked) bookmarkedPostIds.add(postId); else bookmarkedPostIds.delete(postId);
         refreshBookmarkButtons();
