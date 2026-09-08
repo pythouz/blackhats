@@ -368,6 +368,11 @@ function removePostFromUI(postId) {
         postLikers.delete(postId);
         pendingRepliesMap.delete(postId);
         pastLikesFetchedPostIds.delete(postId);
+        if (typeof postZaps !== 'undefined') postZaps.delete(postId);
+        if (typeof bookmarkedPostIds !== 'undefined' && bookmarkedPostIds.has(postId)) {
+            bookmarkedPostIds.delete(postId);
+            if (typeof publishBookmarksList === 'function') publishBookmarksList().catch(() => {});
+        }
     }
 }
 
@@ -476,6 +481,7 @@ async function confirmEdit() {
         await publishToRelays(newEvent);
 
         const oldCard = getPostCard(oldPostId);
+        const wasBookmarked = typeof bookmarkedPostIds !== 'undefined' && bookmarkedPostIds.has(oldPostId);
         if (oldCard) {
             oldCard.remove();
             renderedPosts.delete(oldPostId);
@@ -485,6 +491,7 @@ async function confirmEdit() {
             postContentMap.delete(oldPostId);
             seenEvents.delete(oldPostId);
             pendingRepliesMap.delete(oldPostId);
+            if (typeof postZaps !== 'undefined') postZaps.delete(oldPostId);
 
             initPostState(newEvent.id, newEvent.created_at);
             updatePostScore(newEvent.id);
@@ -500,6 +507,15 @@ async function confirmEdit() {
             renderPost(newEvent);
             reorderFeed();
             showToast('تم التعديل ونشر نسخة جديدة', 'success');
+        }
+        // 🛠️ التعديل عمليًا بيحذف البوست القديم وينشر واحد جديد بمعرف
+        // مختلف تمامًا — من غيره، أي بوست كان محفوظ في "المحفوظات" كان
+        // هيفضل مشاور على بوست محذوف، والنسخة الجديدة تفضل مش محفوظة.
+        if (wasBookmarked && typeof bookmarkedPostIds !== 'undefined') {
+            bookmarkedPostIds.delete(oldPostId);
+            bookmarkedPostIds.add(newEvent.id);
+            if (typeof refreshBookmarkButtons === 'function') refreshBookmarkButtons();
+            if (typeof publishBookmarksList === 'function') publishBookmarksList().catch(() => {});
         }
         closeEditModal();
     } catch (error) {
