@@ -144,6 +144,7 @@ async function sendDirectMessage() {
         // الـ relay يرجّع نفس الحدث لينا تاني عن طريق اشتراكنا المباشر
         // قبل ما الكود هنا يوصل للسطر ده، فتتكرر الرسالة لحظيًا في الشات.
         seenDmIds.add(event.id);
+        limitSet(seenDmIds, MAX_SEEN_EVENTS);
         await publishToRelays(event);
 
         // استبدال الرسالة المؤقتة بالنهائية
