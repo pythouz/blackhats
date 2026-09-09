@@ -118,6 +118,7 @@ async function leaveRoom() {
     }
     activeCalls.clear();
     announcedPeers.clear();
+    peerToPubkey.clear();
 
     // إلغاء الاشتراك
     if (roomSubscription) {
@@ -207,6 +208,8 @@ function listenForPeers(roomName) {
             if (!peerId) return;
 
             if (status === 'join') {
+                peerToPubkey.set(peerId, event.pubkey);
+                fetchProfiles([event.pubkey]);
                 if (!announcedPeers.has(peerId)) {
                     announcedPeers.add(peerId);
                     connectToPeer(peerId, event.pubkey);
@@ -214,6 +217,7 @@ function listenForPeers(roomName) {
                 }
             } else if (status === 'leave') {
                 announcedPeers.delete(peerId);
+                peerToPubkey.delete(peerId);
                 const call = activeCalls.get(peerId);
                 if (call) {
                     try { call.close(); } catch(e) {}
@@ -302,12 +306,17 @@ function updatePeersList() {
         return;
     }
 
-    list.innerHTML = peers.map(peerId => `
+    list.innerHTML = peers.map(peerId => {
+        const pubkey = peerToPubkey.get(peerId);
+        const name = pubkey ? escapeHtml(getDisplayName(pubkey)) : 'مشارك';
+        const avatar = pubkey ? avatarHtml(pubkey, 'w-7 h-7 text-xs') : '<i class="fas fa-user-circle text-lg text-gray-400"></i>';
+        return `
         <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-xl">
-            <i class="fas fa-user-circle text-lg text-gray-400"></i>
-            <span class="text-sm truncate">${peerId.slice(0, 16)}...</span>
+            <div class="flex-shrink-0">${avatar}</div>
+            <span class="text-sm truncate dark:text-white">${name}</span>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 function toggleMute() {
@@ -442,9 +451,26 @@ function renderRoomDirectory() {
 }
 
 async function joinDiscoveredRoom(roomName) {
+    if (isJoiningRoom) return;
+    // 🛠️ كان بينادي toggleRoom()، واللي بيتعامل مع currentRoom كإشارة
+    // "اخرج" بس (toggle بسيط) — يعني لو انت جوه غرفة بالفعل وضغطت
+    // "دخول" على غرفة تانية من القايمة، كان بيخرّجك من غير ما يدخّلك
+    // الجديدة خالص. joinRoom() نفسها بالفعل بتتعامل صح مع "لو في غرفة
+    // حالية، اخرج منها الأول وبعدين ادخل الجديدة" — فبننادي عليها مباشرة.
     const input = $('room-input');
+    const btn = $('btn-join-room');
     if (input) input.value = roomName;
-    await toggleRoom();
+
+    isJoiningRoom = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'جاري الاتصال...'; }
+
+    try {
+        await joinRoom(roomName);
+    } catch (error) {
+        showToast('فشل الدخول: ' + getErrorMessage(error), 'error');
+        isJoiningRoom = false;
+        if (btn) { btn.disabled = false; btn.textContent = currentRoom ? 'مغادرة' : 'دخول'; }
+    }
 }
 
 function restoreRoomAfterRefresh() {
