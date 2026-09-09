@@ -745,7 +745,7 @@ function loadProfilePosts(pubkey, until) {
     if (loading) loading.classList.remove('hidden');
 
     const filters = {
-        kinds: [1],
+        kinds: [1, 6],
         authors: [pubkey],
         limit: profilePostsLimit
     };
@@ -758,6 +758,10 @@ function loadProfilePosts(pubkey, until) {
             if (event.kind === 5) return;
             if (isHidden(event.pubkey)) return;
             if (tombstonedEvents.has(event.id)) return;
+            if (event.kind === 6) {
+                renderProfileRepost(event);
+                return;
+            }
             // تعليق على منشور شخص تاني (فيه tag نوعه 'e') مش منشور مستقل،
             // فمش المفروض يظهر في صفحة البروفايل كأنه بوست.
             if (isReplyEvent(event)) return;
@@ -848,6 +852,85 @@ function renderProfilePost(event) {
         processPendingReplies(event.id);
     } catch(err) {
         console.error('[Profile] خطأ في عرض المنشور:', err);
+    }
+}
+
+function renderProfileRepost(event) {
+    const container = document.getElementById('profile-posts-container');
+    if (!container) return;
+    if (container.querySelector(`.post-card[data-repost-event-id="${CSS.escape(event.id)}"]`)) return;
+
+    let original;
+    try {
+        original = JSON.parse(event.content);
+        if (!original?.id || !original?.pubkey || typeof original.content !== 'string') throw new Error('invalid');
+    } catch (e) {
+        return; // نفس ملاحظة renderRepost في posts.js — من غير محتوى مضمّن مقدرش أعرضه
+    }
+    if (isHidden(original.pubkey) || isHidden(event.pubkey)) return;
+    if (container.querySelector(`.post-card[data-post-id="${CSS.escape(original.id)}"]`)) return;
+
+    try {
+        const time = new Date(original.created_at * 1000).toLocaleString('ar-EG', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+        const displayName = getDisplayName(original.pubkey);
+        const contentHtml = renderMediaContent(original.content);
+        const isMyRepost = event.pubkey === pk;
+
+        const div = document.createElement('div');
+        div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
+        div.dataset.postId = original.id;
+        div.dataset.pubkey = original.pubkey;
+        div.dataset.createdAt = event.created_at; // بترتّب بوقت إعادة النشر، زي renderRepost بالظبط
+        div.dataset.repostEventId = event.id;
+
+        const repostBtnHtml = isMyRepost
+            ? `<button class="repost-button flex items-center gap-1 text-emerald-500 transition" onclick="unrepostPost('${event.id}', '${original.id}')" title="إلغاء إعادة النشر"><i class="fas fa-retweet"></i></button>`
+            : `<button class="repost-button flex items-center gap-1 hover:text-emerald-500 transition" onclick="repostPost('${original.id}', '${original.pubkey}')" title="إعادة نشر"><i class="fas fa-retweet"></i></button>`;
+
+        div.innerHTML = `
+            <div class="flex items-center gap-2 text-xs text-gray-400 mb-3 -mt-1">
+                <i class="fas fa-retweet text-emerald-500"></i>
+                <span>أعاد النشر</span>
+            </div>
+            <div class="flex items-center gap-3 mb-3">
+                <div class="avatar-slot flex-shrink-0 cursor-pointer" onclick="openProfilePage('${original.pubkey}')">${avatarHtml(original.pubkey, 'w-11 h-11 text-base')}</div>
+                <div class="min-w-0 flex-1">
+                    <div class="author-name font-bold text-sm dark:text-white truncate">${escapeHtml(displayName)}</div>
+                    <div class="text-xs text-gray-400">${escapeHtml(time)}</div>
+                </div>
+            </div>
+            <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
+            <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
+                <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${original.id}', '${original.pubkey}')" data-liked="false" data-postid="${original.id}">
+                    <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
+                </button>
+                <button class="reply-button flex items-center gap-1 hover:text-accent transition" onclick="replyToPost('${original.id}', '${original.pubkey}')" title="اكتب تعليقًا">
+                    <i class="far fa-comment"></i> <span>تعليق</span>
+                </button>
+                <button class="reply-toggle-button flex items-center gap-1 hover:text-accent hover:underline transition" onclick="toggleReplies('${original.id}')" title="عرض التعليقات">
+                    <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
+                    <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
+                </button>
+                ${repostBtnHtml}
+                <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${original.id}')" data-postid="${original.id}" title="حفظ">
+                    <i class="fas fa-bookmark"></i>
+                </button>
+                <button class="zap-button flex items-center gap-1 hover:text-amber-500 transition mr-auto" onclick="openZapModal('${original.id}', '${original.pubkey}')" title="زاب">
+                    <i class="fas fa-bolt"></i> <span class="zap-count"></span>
+                </button>
+            </div>
+            <div class="replies-container hidden mt-3 space-y-2" data-replies="${original.id}"></div>
+        `;
+        container.appendChild(div);
+        if (!postStats.has(original.id)) {
+            initPostState(original.id, original.created_at);
+            postContentMap.set(original.id, { content: original.content, created_at: original.created_at });
+        }
+        fetchProfiles([original.pubkey, event.pubkey]);
+        processPendingReplies(original.id);
+        if (bookmarkedPostIds.has(original.id)) refreshBookmarkButtons();
+    } catch (err) {
+        console.error('[Profile] خطأ في عرض إعادة النشر:', err);
     }
 }
 
