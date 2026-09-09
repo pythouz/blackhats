@@ -93,6 +93,7 @@ let roomSubscription = null;
 let myPeerId = null;
 let activeCalls = new Map();
 let announcedPeers = new Set();
+const peerToPubkey = new Map(); // معرّف اتصال PeerJS -> مفتاح Nostr — عشان نعرض اسم/صورة حقيقيين مش معرّف تقني
 let isMuted = false;
 let isJoiningRoom = false;
 let roomHeartbeatInterval = null;   // إعادة إعلان الحضور دوريًا طول ما إحنا في الغرفة
