@@ -251,6 +251,35 @@ async function repostPost(postId, postPubkey) {
     }
 }
 
+async function unrepostPost(repostEventId, originalPostId) {
+    if (!pk) { showToast('لا توجد هوية', 'error'); return; }
+    if (!checkRateLimit('unrepostPost', 1000, 15, 5 * 60 * 1000)) return;
+
+    try {
+        const event = await signEvent({
+            kind: 5,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['e', repostEventId], ['t', APP_TAG]],
+            content: ''
+        });
+        await publishToRelays(event);
+        showToast('اتلغت إعادة النشر', 'info');
+
+        // بما إن كارت إعادة النشر بياخد data-post-id بمعرف البوست الأصلي،
+        // removePostFromUI/getPostCard الطبيعية هتشيل كارت البوست الأصلي
+        // نفسه من الفيد لو موجود — ده مش المطلوب هنا (البوست الأصلي
+        // ممكن يكون لسه موجود فعليًا، إحنا بس بنلغي *إعادة النشر* بتاعتنا).
+        // فبنشيل الكارت مباشرة بدل ما نستخدم removePostFromUI.
+        const card = document.querySelector(`.post-card[data-repost-event-id="${CSS.escape(repostEventId)}"]`);
+        if (card) {
+            card.remove();
+            renderedPosts.delete(originalPostId);
+        }
+    } catch (e) {
+        showToast('فشل إلغاء إعادة النشر: ' + getErrorMessage(e), 'error');
+    }
+}
+
 function renderRepost(event) {
     const container = $('feed-container');
     if (!container) return;
@@ -281,6 +310,16 @@ function renderRepost(event) {
     div.dataset.postId = original.id;      // التفاعلات (لايك/رد/حذف) بتستهدف البوست الأصلي دايمًا
     div.dataset.pubkey = original.pubkey;
     div.dataset.sortTime = event.created_at; // بترتّب بوقت إعادة النشر، مش وقت المنشور الأصلي
+    div.dataset.repostEventId = event.id;   // معرّف حدث إعادة النشر نفسه — محتاجينه لو عايزين نحذفه لاحقًا
+
+    const isMyRepost = event.pubkey === pk;
+    const repostBtnHtml = isMyRepost
+        ? `<button class="repost-button flex items-center gap-1 text-emerald-500 transition" onclick="unrepostPost('${event.id}', '${original.id}')" title="إلغاء إعادة النشر">
+                <i class="fas fa-retweet"></i>
+           </button>`
+        : `<button class="repost-button flex items-center gap-1 hover:text-emerald-500 transition" onclick="repostPost('${original.id}', '${original.pubkey}')" title="إعادة نشر">
+                <i class="fas fa-retweet"></i>
+           </button>`;
 
     div.innerHTML = `
         <div class="flex items-center gap-2 text-xs text-gray-400 mb-3 -mt-1">
@@ -306,6 +345,7 @@ function renderRepost(event) {
                 <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
                 <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
             </button>
+            ${repostBtnHtml}
             <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${original.id}')" data-postid="${original.id}" title="حفظ">
                 <i class="fas fa-bookmark"></i>
             </button>
