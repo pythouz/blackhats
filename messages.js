@@ -205,23 +205,60 @@ function renderMessagesList() {
             ? `<span class="bg-accent text-white text-[11px] font-bold rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center">${conv.unread > 99 ? '99+' : conv.unread}</span>`
             : '';
         return `
-            <button onclick="openChat('${convPubkey}')"
-                    class="w-full flex items-center gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60">
-                <div class="flex-shrink-0">${avatarHtml(convPubkey, 'w-12 h-12 text-base')}</div>
-                <div class="flex-1 min-w-0">
-                    <p class="font-bold text-sm dark:text-white truncate">${name}</p>
-                    <p class="text-xs text-gray-400 truncate mt-0.5">${preview}</p>
-                </div>
-                ${unreadBadge}
-            </button>
+            <div class="w-full flex items-center gap-1 rounded-2xl transition hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                <button onclick="openChat('${convPubkey}')" class="flex-1 flex items-center gap-3 p-3 text-right min-w-0">
+                    <div class="flex-shrink-0">${avatarHtml(convPubkey, 'w-12 h-12 text-base')}</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-sm dark:text-white truncate">${name}</p>
+                        <p class="text-xs text-gray-400 truncate mt-0.5">${preview}</p>
+                    </div>
+                    ${unreadBadge}
+                </button>
+                <button onclick="event.stopPropagation(); confirmDeleteConversationFromList('${convPubkey}')"
+                        class="w-9 h-9 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition mx-1 shrink-0" title="حذف المحادثة">
+                    <i class="fas fa-trash text-xs"></i>
+                </button>
+            </div>
         `;
     }).join('');
 }
 
-function promptNewChat() {
-    const input = prompt('اكتب npub أو المفتاح العام (hex) بتاع الشخص اللي عايز تراسله:');
-    if (!input) return;
-    const query = input.trim();
+function openNewChatPanel() {
+    $('new-chat-pubkey-input').value = '';
+    renderFollowingListForChat();
+    $('new-chat-panel')?.classList.remove('hidden');
+    if (typeof loadMyContacts === 'function') {
+        loadMyContacts().then(renderFollowingListForChat);
+    }
+}
+
+function closeNewChatPanel() {
+    $('new-chat-panel')?.classList.add('hidden');
+}
+
+function renderFollowingListForChat() {
+    const list = $('new-chat-following-list');
+    if (!list) return;
+    const following = Array.from(myContacts || []).filter(p => p !== pk);
+    if (!following.length) {
+        list.innerHTML = `<p class="text-center text-gray-400 text-sm py-8">لسه مش متابع حد. تابع ناس من صفحاتهم الشخصية عشان تظهر هنا.</p>`;
+        return;
+    }
+    fetchProfiles(following);
+    list.innerHTML = following.map(pubkey => `
+        <button onclick="closeNewChatPanel(); openChat('${pubkey}')"
+                class="w-full flex items-center gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60">
+            <div class="flex-shrink-0">${avatarHtml(pubkey, 'w-10 h-10 text-sm')}</div>
+            <p class="font-bold text-sm dark:text-white truncate">${escapeHtml(getDisplayName(pubkey))}</p>
+        </button>
+    `).join('');
+}
+
+function startChatFromInput() {
+    const input = $('new-chat-pubkey-input');
+    const query = (input?.value || '').trim();
+    if (!query) { showToast('اكتب npub أو مفتاح hex، أو اختر من المتابَعين', 'info'); return; }
+
     let pubkey = query;
     if (query.startsWith('npub1')) {
         try {
@@ -234,6 +271,7 @@ function promptNewChat() {
     }
     if (pubkey === pk) { showToast('متقدرش تراسل نفسك 🙂', 'info'); return; }
     fetchProfiles([pubkey]);
+    closeNewChatPanel();
     openChat(pubkey);
 }
 
@@ -262,9 +300,67 @@ function openChat(pubkey) {
     if (nameEl) nameEl.textContent = getDisplayName(pubkey);
     const avatarEl = $('chat-thread-avatar');
     if (avatarEl) avatarEl.innerHTML = avatarHtml(pubkey, 'w-9 h-9 text-sm');
+    updateChatFollowButton(pubkey);
 
     renderChatMessages();
     setTimeout(() => $('chat-input')?.focus(), 100);
+}
+
+function updateChatFollowButton(pubkey) {
+    const btn = $('chat-thread-follow-btn');
+    if (!btn) return;
+    const isFollowing = typeof myContacts !== 'undefined' && myContacts.has(pubkey);
+    btn.title = isFollowing ? 'إلغاء المتابعة' : 'متابعة';
+    btn.classList.toggle('text-accent', isFollowing);
+    btn.classList.toggle('bg-accent/10', isFollowing);
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = isFollowing ? 'fas fa-user-check text-sm' : 'fas fa-user-plus text-sm';
+    // نتأكد إن قايمة المتابعة عندنا محدّثة (لو المستخدم فتح الشات قبل ما
+    // أي صفحة بروفايل تتفتح، myContacts ممكن يكون لسه فاضي)
+    if (typeof loadMyContacts === 'function') {
+        loadMyContacts().then(() => {
+            if (activeChatPubkey === pubkey) {
+                const nowFollowing = myContacts.has(pubkey);
+                btn.title = nowFollowing ? 'إلغاء المتابعة' : 'متابعة';
+                btn.classList.toggle('text-accent', nowFollowing);
+                btn.classList.toggle('bg-accent/10', nowFollowing);
+                const ic = btn.querySelector('i');
+                if (ic) ic.className = nowFollowing ? 'fas fa-user-check text-sm' : 'fas fa-user-plus text-sm';
+            }
+        });
+    }
+}
+
+function toggleFollowInChat() {
+    if (!activeChatPubkey) return;
+    if (typeof toggleFollow === 'function') toggleFollow(activeChatPubkey);
+    // toggleFollow بتحدّث myContacts فورًا (تفاؤليًا) قبل ما تنشر — نعكس
+    // نفس الحالة على زرار الشات على طول من غير ما ننتظر رد الشبكة.
+    setTimeout(() => updateChatFollowButton(activeChatPubkey), 50);
+}
+
+function confirmDeleteConversationFromList(pubkey) {
+    if (!confirm('تحذف المحادثة دي؟ هتتشال من عندك بس (الطرف التاني لسه شايفها).')) return;
+    deleteConversation(pubkey);
+    renderMessagesList();
+}
+
+function confirmDeleteConversation() {
+    if (!activeChatPubkey) return;
+    if (!confirm('تحذف المحادثة دي؟ هتتشال من عندك بس (الطرف التاني لسه شايفها).')) return;
+    deleteConversation(activeChatPubkey);
+    closeChat();
+}
+
+function deleteConversation(pubkey) {
+    const conv = conversations.get(pubkey);
+    if (conv?.unread) {
+        totalUnreadDms = Math.max(0, totalUnreadDms - conv.unread);
+        updateDmBadge();
+    }
+    conversations.delete(pubkey);
+    saveDmState();
+    showToast('اتمسحت المحادثة', 'info');
 }
 
 function closeChat() {
@@ -580,7 +676,12 @@ function updateDmCallUI() {
 window.sendDirectMessage = sendDirectMessage;
 window.openChat = openChat;
 window.closeChat = closeChat;
-window.promptNewChat = promptNewChat;
+window.openNewChatPanel = openNewChatPanel;
+window.closeNewChatPanel = closeNewChatPanel;
+window.startChatFromInput = startChatFromInput;
+window.confirmDeleteConversation = confirmDeleteConversation;
+window.confirmDeleteConversationFromList = confirmDeleteConversationFromList;
+window.toggleFollowInChat = toggleFollowInChat;
 window.openChatFromProfile = openChatFromProfile;
 window.startDmSubscription = startDmSubscription;
 window.startDmCallListener = startDmCallListener;
