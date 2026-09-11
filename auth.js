@@ -73,25 +73,13 @@ async function signEvent(eventTemplate) {
 async function encryptToPubkey(plaintext, recipientHex) {
     if (!recipientHex) throw new Error('لا يوجد مستلم للتشفير');
 
-    // 🔒 نفضّل NIP-44 (تشفير أحدث وأقوى من NIP-04 القديم): NIP-04 معروف
-    // بعيوب تشفيرية — مفيش تحقق من سلامة الرسالة (integrity)، وطريقة
-    // الـ padding بتاعته بتسرّب معلومات عن طول النص الأصلي. لو NIP-44 مش
-    // متاح (امتداد NIP-07 قديم أو نسخة مكتبة قديمة)، بنرجع تلقائيًا لـ
-    // NIP-04 عشان العملية تفضل شغالة في كل الأحوال بدل ما تفشل تمامًا.
-    try {
-        if (usingNip07 && window.nostr?.nip44?.encrypt) {
-            return 'nip44:' + await window.nostr.nip44.encrypt(recipientHex, plaintext);
-        }
-        if (!usingNip07 && secretKeyHex && NostrTools?.nip44?.encrypt && NostrTools?.nip44?.getConversationKey) {
-            const skBytes = Uint8Array.from(secretKeyHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-            const convKey = NostrTools.nip44.getConversationKey(skBytes, recipientHex);
-            return 'nip44:' + await NostrTools.nip44.encrypt(plaintext, convKey);
-        }
-    } catch (e) {
-        console.warn('[Auth] NIP-44 غير متاح، بنرجع لـ NIP-04:', e);
-    }
-
-    // احتياطي: NIP-04
+    // ⚠️ رجّعنا هنا لـ NIP-04 بس (بعد ما جرّبنا NIP-44 وطلع بيه مشكلة —
+    // التسجيل كان بيوصل مشفّر بشكل غلط بصمت، فالطلبات كانت بتختفي عند
+    // الأدمن من غير أي خطأ ظاهر لحد). NIP-04 أضعف تشفيريًا من NIP-44،
+    // لكنه مضمون شغال 100% مع المكتبة المحمّلة فعليًا، وده أهم بكتير من
+    // ميزة أمان إضافية في فيتشر لو اتعطل بيمنع مستخدمين جداد من التسجيل
+    // خالص. ممكن نرجع نجرب NIP-44 تاني لو قدرنا نتأكد من شكل الـ API
+    // بتجربة حقيقية في متصفح.
     if (usingNip07 && window.nostr?.nip04?.encrypt) {
         return await window.nostr.nip04.encrypt(recipientHex, plaintext);
     }
@@ -100,22 +88,13 @@ async function encryptToPubkey(plaintext, recipientHex) {
 }
 
 async function decryptFromPubkey(ciphertext, senderHex) {
-    // بادئة 'nip44:' بتحدد إن الرسالة اتشفرت بـ NIP-44 (شوف encryptToPubkey
-    // فوق). محتاجينها لأن الأكواد دي مخصصة للتطبيق مش أنواع أحداث Nostr
-    // قياسية بتدل بذاتها على نوع التشفير المستخدم.
+    // بادئة 'nip44:' كانت بتتسجل من نسخة سابقة استخدمت NIP-44 — لو
+    // وصلت رسالة قديمة بيها، هي أصلاً معطوبة (نفس المشكلة اللي رجّعنا
+    // بسببها لـ NIP-04)، فمفيش داعي نحاول نفك تشفيرها، هنفشل برسالة
+    // واضحة بدل ما نحاول ونفشل بصمت.
     if (typeof ciphertext === 'string' && ciphertext.startsWith('nip44:')) {
-        const payload = ciphertext.slice(6);
-        if (usingNip07 && window.nostr?.nip44?.decrypt) {
-            return await window.nostr.nip44.decrypt(senderHex, payload);
-        }
-        if (secretKeyHex && NostrTools?.nip44?.decrypt && NostrTools?.nip44?.getConversationKey) {
-            const skBytes = Uint8Array.from(secretKeyHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-            const convKey = NostrTools.nip44.getConversationKey(skBytes, senderHex);
-            return await NostrTools.nip44.decrypt(payload, convKey);
-        }
-        throw new Error('NIP-44 غير متاح لفك التشفير (حدّث الامتداد أو المتصفح)');
+        throw new Error('رسالة قديمة بتشفير مش مدعوم حاليًا');
     }
-    // نسخة أقدم (NIP-04) — للتوافق مع أي رسائل اتبعتت قبل هذا التحديث
     if (usingNip07 && window.nostr?.nip04?.decrypt) {
         return await window.nostr.nip04.decrypt(senderHex, ciphertext);
     }
