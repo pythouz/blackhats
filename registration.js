@@ -170,10 +170,18 @@ function loadPendingRegistrationsForAdmin() {
     });
 }
 
+let registrationSubscription = null;
+
 function subscribeToRegistrationEvents() {
     const adminHex = window.ADMIN_PUBKEY_HEX;
     if (!adminHex || pk !== adminHex) return;
-    pool.subscribeMany(RELAYS, [{ kinds: [REGISTER_EVENT_KIND], '#p': [adminHex] }], {
+    // 🛠️ الاشتراك ده كان بيعيد نفسه كل 5 ثواني من غير ما يقفل النسخة
+    // القديمة الأول — يعني كل شوية بيتفتح اشتراك جديد فوق القديم للأبد
+    // طول ما الأدمن فاتح الجلسة، وكل واحد فيهم بيطلب نفس البيانات تاني.
+    if (registrationSubscription) {
+        try { registrationSubscription.close(); } catch (e) {}
+    }
+    registrationSubscription = pool.subscribeMany(RELAYS, [{ kinds: [REGISTER_EVENT_KIND], '#p': [adminHex] }], {
         onevent: async (ev) => {
             await processRegistrationEvent(ev);
         },
