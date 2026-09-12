@@ -285,13 +285,14 @@ function loadMyProfile() {
 function avatarHtml(pubkey, sizeClass) {
     const profile = profileCache.get(pubkey);
     const fallback = (pubkey || '؟').slice(0, 2).toUpperCase();
+    const clickAttr = pubkey ? ` onclick="openProfilePage('${pubkey}')" style="cursor:pointer"` : '';
     if (profile?.picture) {
-        return `<div class="avatar ${sizeClass} bg-gradient-to-br from-accent to-accent2 overflow-hidden p-0">
+        return `<div class="avatar ${sizeClass} bg-gradient-to-br from-accent to-accent2 overflow-hidden p-0"${clickAttr}>
             <img src="${escapeHtml(profile.picture)}" alt="" class="w-full h-full object-cover"
                  onerror="this.parentElement.textContent='${escapeHtml(fallback)}'">
         </div>`;
     }
-    return `<div class="avatar ${sizeClass} bg-gradient-to-br from-accent to-accent2">${escapeHtml(fallback)}</div>`;
+    return `<div class="avatar ${sizeClass} bg-gradient-to-br from-accent to-accent2"${clickAttr}>${escapeHtml(fallback)}</div>`;
 }
 
 function updateAvatarsInDom(pubkey) {
@@ -475,8 +476,18 @@ function renderFollowButton(pubkey) {
     wrap.classList.remove('hidden');
     const isFollowing = myContacts.has(pubkey);
     const isMuted = mutedPubkeys.has(pubkey);
+    const isAdmin = window.ADMIN_PUBKEY_HEX && pk === window.ADMIN_PUBKEY_HEX;
+    const isBanned = bannedPubkeys.has(pubkey);
+    // زرار الحظر يظهر للأدمن بس، في صفحة أي حد تاني (مش نفسه)
+    const banBtnHtml = isAdmin
+        ? `<button onclick="toggleBanUser('${pubkey}')" title="${isBanned ? 'إلغاء حظر هذا المستخدم' : 'حظر هذا المستخدم'}"
+                class="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 transition ${isBanned ? 'text-red-500' : 'text-gray-600 dark:text-gray-300'}">
+                <i class="fas ${isBanned ? 'fa-user-check' : 'fa-user-slash'} text-sm"></i>
+           </button>`
+        : '';
     wrap.innerHTML = `
         <div class="flex items-center gap-2">
+            ${banBtnHtml}
             <button onclick="toggleUserMute('${pubkey}')" data-pubkey="${pubkey}" title="${isMuted ? 'إلغاء الكتم' : 'كتم'}"
                 class="mute-button w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 transition ${isMuted ? 'text-red-500' : 'text-gray-600 dark:text-gray-300'}">
                 <i class="fas ${isMuted ? 'fa-volume-mute' : 'fa-volume-xmark'} text-sm"></i>
