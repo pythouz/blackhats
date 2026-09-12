@@ -93,6 +93,7 @@ let roomSubscription = null;
 let myPeerId = null;
 let activeCalls = new Map();
 let announcedPeers = new Set();
+const peerLastSeen = new Map(); // peerId -> آخر وقت شفنا فيه إعلان حضور منه — عشان نكتشف ونشيل المشاركين اللي قطع اتصالهم فجأة (كراش/إغلاق تاب) من غير ما يبعتوا leave
 const peerToPubkey = new Map(); // معرّف اتصال PeerJS -> مفتاح Nostr — عشان نعرض اسم/صورة حقيقيين مش معرّف تقني
 let isMuted = false;
 let isJoiningRoom = false;
@@ -152,6 +153,7 @@ const seenReplies = new Set();
 let notifications = [];
 let unreadNotifCount = 0;
 const seenNotifIds = new Set();
+const knownFollowers = new Set(); // pubkeys اللي عارفين إنهم بيتابعوك بالفعل — عشان منكررش إشعار "متابعة جديدة"
 let notificationsSubscription = null;
 
 // ============================
