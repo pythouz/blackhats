@@ -593,11 +593,25 @@ function startNotificationsSubscription() {
     const since = lastKnown || (Math.floor(Date.now() / 1000) - 7 * 24 * 3600);
 
     notificationsSubscription = pool.subscribeMany(RELAYS, [
-        { kinds: [1, 6, 7], '#p': [pk], since }
+        { kinds: [1, 3, 6, 7], '#p': [pk], since }
     ], {
         onevent: (event) => {
             if (event.pubkey === pk) return; // تفاعلك انت مع نفسك مش إشعار
             if (isHidden(event.pubkey)) return;
+            if (event.kind === 3) {
+                // قايمة متابعة (بديلة بالكامل، مش حدث "متابعة جديدة" مباشر)
+                // — نتابع مين عارفين إنه بيتابعك بالفعل عشان منكررش
+                // الإشعار لو نشر قايمته تاني لأي سبب تاني (تابع حد جديد
+                // مثلاً وده خلّى القايمة كلها تتنشر تاني بمن فيهم انت).
+                const stillFollows = event.tags.some(t => t[0] === 'p' && t[1] === pk);
+                if (!stillFollows) { knownFollowers.delete(event.pubkey); return; }
+                if (knownFollowers.has(event.pubkey)) return;
+                knownFollowers.add(event.pubkey);
+                if (seenNotifIds.has(event.id)) return;
+                seenNotifIds.add(event.id);
+                addNotification(event);
+                return;
+            }
             if (seenNotifIds.has(event.id)) return;
             seenNotifIds.add(event.id);
             limitSet(seenNotifIds, MAX_SEEN_EVENTS);
@@ -613,6 +627,18 @@ function startNotificationsSubscription() {
 }
 
 function addNotification(event) {
+    if (event.kind === 3) {
+        notifications.unshift({ id: event.id, type: 'follow', postId: null, fromPubkey: event.pubkey, createdAt: event.created_at, read: false });
+        if (notifications.length > 100) notifications.length = 100;
+        unreadNotifCount++;
+        saveNotifState();
+        renderNotifBadge();
+        fetchProfiles([event.pubkey]);
+        const panel = $('notifications-panel');
+        if (panel && !panel.classList.contains('hidden')) renderNotificationsPanel();
+        return;
+    }
+
     const type = event.kind === 7 ? 'like' : (event.kind === 6 ? 'repost' : 'reply');
     let postId;
     if (type === 'reply') {
@@ -664,10 +690,10 @@ function renderNotificationsPanel() {
 
     list.innerHTML = notifications.map(n => {
         const name = escapeHtml(getDisplayName(n.fromPubkey));
-        const verb = n.type === 'like' ? 'أعجب بمنشورك' : (n.type === 'repost' ? 'أعاد نشر منشورك' : 'ردّ عليك');
-        const icon = n.type === 'like' ? 'fa-heart text-red-500' : (n.type === 'repost' ? 'fa-retweet text-emerald-500' : 'fa-comment text-accent');
+        const verb = n.type === 'like' ? 'أعجب بمنشورك' : (n.type === 'repost' ? 'أعاد نشر منشورك' : (n.type === 'follow' ? 'بدأ متابعتك' : 'ردّ عليك'));
+        const icon = n.type === 'like' ? 'fa-heart text-red-500' : (n.type === 'repost' ? 'fa-retweet text-emerald-500' : (n.type === 'follow' ? 'fa-user-plus text-accent2' : 'fa-comment text-accent'));
         return `
-            <button onclick="openNotification('${n.postId}')"
+            <button onclick="openNotification('${n.id}')"
                     class="w-full flex items-center gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60 ${n.read ? '' : 'bg-accent/5 dark:bg-accent/10'}">
                 <div class="flex-shrink-0">${avatarHtml(n.fromPubkey, 'w-10 h-10 text-sm')}</div>
                 <div class="flex-1 min-w-0 text-sm">
@@ -703,9 +729,14 @@ function toggleNotificationsPanel() {
     }
 }
 
-function openNotification(postId) {
+function openNotification(notifId) {
+    const n = notifications.find(x => x.id === notifId);
     toggleNotificationsPanel();
-    scrollToPost(postId);
+    if (n?.type === 'follow') {
+        openProfilePage(n.fromPubkey);
+        return;
+    }
+    scrollToPost(n ? n.postId : notifId);
 }
 
 // ============================
