@@ -83,7 +83,30 @@ async function joinRoom(roomName) {
     if (roomHeartbeatInterval) clearInterval(roomHeartbeatInterval);
     roomHeartbeatInterval = setInterval(() => {
         if (currentRoom) announcePresence(currentRoom).catch(() => {});
+        pruneStalePeers();
     }, 45000);
+
+    // 🛠️ من غير التنظيف ده، لو حد قفل التاب فجأة أو وقع نتّه (من غير ما
+    // حدث "leave" يتبعت)، بيفضل ظاهر في قايمة المشاركين للأبد — ولو
+    // رجع دخل تاني بمعرف اتصال جديد، هتشوفه مرتين. التنظيف بيمسح أي حد
+    // ما بعتش أي إعلان حضور منذ فترة أطول من نافذة التتبّع.
+    function pruneStalePeers() {
+        const cutoff = Date.now() - ROOM_PRESENCE_TTL_MS * 2;
+        for (const [peerId, lastSeen] of peerLastSeen) {
+            if (lastSeen < cutoff) {
+                peerLastSeen.delete(peerId);
+                peerToPubkey.delete(peerId);
+                announcedPeers.delete(peerId);
+                const call = activeCalls.get(peerId);
+                if (call) {
+                    try { call.close(); } catch (e) {}
+                    call._audioElement?.remove();
+                    activeCalls.delete(peerId);
+                }
+            }
+        }
+        updatePeersList();
+    }
 
     // تحديث الواجهة
     const activeUI = $('active-room-ui');
@@ -119,6 +142,7 @@ async function leaveRoom() {
     activeCalls.clear();
     announcedPeers.clear();
     peerToPubkey.clear();
+    peerLastSeen.clear();
 
     // إلغاء الاشتراك
     if (roomSubscription) {
@@ -209,6 +233,7 @@ function listenForPeers(roomName) {
 
             if (status === 'join') {
                 peerToPubkey.set(peerId, event.pubkey);
+                peerLastSeen.set(peerId, Date.now());
                 fetchProfiles([event.pubkey]);
                 if (!announcedPeers.has(peerId)) {
                     announcedPeers.add(peerId);
@@ -218,6 +243,7 @@ function listenForPeers(roomName) {
             } else if (status === 'leave') {
                 announcedPeers.delete(peerId);
                 peerToPubkey.delete(peerId);
+                peerLastSeen.delete(peerId);
                 const call = activeCalls.get(peerId);
                 if (call) {
                     try { call.close(); } catch(e) {}
@@ -238,6 +264,48 @@ function listenForPeers(roomName) {
     });
 }
 
+// 🛠️ الكود القديم كان بس بيحط audio.autoplay = true من غير ما ينادي
+// .play() فعليًا ولا يتعامل مع رفض المتصفح للتشغيل التلقائي. المتصفحات
+// الحديثة (خصوصًا Chrome/Safari) بتمنع تشغيل أي صوت تلقائيًا لو مش جوه
+// نفس اللحظة المباشرة لضغطة المستخدم — وبما إن الصوت البعيد بيوصل بعد
+// شوية عن طريق شبكة WebRTC (مش استجابة مباشرة لضغطة)، المتصفح كان بيرفض
+// التشغيل بصمت من غير أي رسالة، فالنتيجة: مفيش صوت خالص.
+function attachRemoteAudio(peerId, call, remoteStream) {
+    const audio = new Audio();
+    audio.srcObject = remoteStream;
+    audio.autoplay = true;
+    audio.dataset.peerId = peerId;
+    // نضيفه فعليًا للصفحة (مخفي) بدل ما يفضل عنصر معلّق بره الـ DOM —
+    // بيخلي تشغيل الصوت أكثر ثباتًا عبر المتصفحات المختلفة.
+    const container = $('audio-container') || document.body;
+    container.appendChild(audio);
+    call._audioElement = audio;
+
+    const tryPlay = () => audio.play().catch((err) => {
+        console.warn('[Rooms] المتصفح منع التشغيل التلقائي للصوت:', err);
+        // احتياطي: لو المتصفح رفض التشغيل التلقائي، نوري تنبيه واضح
+        // يخلي المستخدم يفعّل الصوت بنفسه بضغطة واحدة (ضغطة مستخدم
+        // مباشرة بتتجاوز منع التشغيل التلقائي دايمًا).
+        showAudioUnlockPrompt();
+    });
+    tryPlay();
+}
+
+let audioUnlockPromptShown = false;
+function showAudioUnlockPrompt() {
+    if (audioUnlockPromptShown) return;
+    audioUnlockPromptShown = true;
+    showToast('اضغط هنا عشان تفعّل الصوت 🔊', 'info');
+    const unlock = () => {
+        document.querySelectorAll('#audio-container audio, #dm-call-audio').forEach(a => { a.play().catch(() => {}); });
+        audioUnlockPromptShown = false;
+        document.removeEventListener('click', unlock);
+        document.removeEventListener('touchstart', unlock);
+    };
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true });
+}
+
 function connectToPeer(peerId, pubkey) {
     if (activeCalls.has(peerId)) return;
     if (peerId === myPeerId) return;
@@ -245,22 +313,18 @@ function connectToPeer(peerId, pubkey) {
     try {
         const call = peer.call(peerId, localStream);
         activeCalls.set(peerId, call);
-        call.on('stream', (remoteStream) => {
-            // إضافة الصوت البعيد
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            // تخزين مرجع للصوت
-            call._audioElement = audio;
-        });
+        peerLastSeen.set(peerId, Date.now());
+        call.on('stream', (remoteStream) => attachRemoteAudio(peerId, call, remoteStream));
         call.on('close', () => {
             activeCalls.delete(peerId);
             announcedPeers.delete(peerId);
+            call._audioElement?.remove();
             updatePeersList();
         });
         call.on('error', () => {
             activeCalls.delete(peerId);
             announcedPeers.delete(peerId);
+            call._audioElement?.remove();
             updatePeersList();
         });
         updatePeersList();
@@ -278,16 +342,13 @@ function handleIncomingCall(call) {
     call.answer(localStream);
     activeCalls.set(peerId, call);
     announcedPeers.add(peerId);
+    peerLastSeen.set(peerId, Date.now());
 
-    call.on('stream', (remoteStream) => {
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.autoplay = true;
-        call._audioElement = audio;
-    });
+    call.on('stream', (remoteStream) => attachRemoteAudio(peerId, call, remoteStream));
     call.on('close', () => {
         activeCalls.delete(peerId);
         announcedPeers.delete(peerId);
+        call._audioElement?.remove();
         updatePeersList();
     });
     updatePeersList();
