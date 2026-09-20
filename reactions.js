@@ -408,11 +408,16 @@ async function confirmReply() {
     }
 
     try {
+        let content = text;
+        if (typeof hasPlatformKey === 'function' && hasPlatformKey()) {
+            try { content = await encryptContent(text); }
+            catch (e) { console.warn('[Reactions] فشل تشفير الرد، هيتنشر كنص عادي:', e); }
+        }
         const event = await signEvent({
             kind: 1,
             created_at: Math.floor(Date.now() / 1000),
             tags,
-            content: text
+            content
         });
         await publishToRelays(event);
         closeReplyModal();
@@ -447,7 +452,7 @@ function handleIncomingReply(event) {
     processPendingReplies(rootId);
 }
 
-function processPendingReplies(rootId) {
+async function processPendingReplies(rootId) {
     const replies = pendingRepliesMap.get(rootId) || [];
     if (!replies.length) return;
 
@@ -469,7 +474,7 @@ function processPendingReplies(rootId) {
 
     replies.sort((a, b) => a.created_at - b.created_at);
     for (const reply of replies) {
-        renderReply(reply, container);
+        await renderReply(reply, container);
     }
     pendingRepliesMap.delete(rootId);
 
@@ -487,7 +492,7 @@ function processAllPendingReplies() {
     }
 }
 
-function renderReply(event, container) {
+async function renderReply(event, container) {
     // 🛠️ الفحص ده كان document-wide، يعني لو نفس البوست ظاهر في الفيد
     // الرئيسي وصفحة البروفايل مع بعض، الرد كان بيترندر في نسخة واحدة بس
     // (الأولى اللي اتلاقت) وبعدين يتعتبر "موجود" فيتمنع من الظهور في
@@ -499,7 +504,10 @@ function renderReply(event, container) {
         hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
     });
     const displayName = getDisplayName(event.pubkey);
-    const contentHtml = renderMediaContent(event.content);
+    const displayContent = typeof resolveDisplayContent === 'function'
+        ? await resolveDisplayContent(event.content)
+        : event.content;
+    const contentHtml = renderMediaContent(displayContent);
 
     const div = document.createElement('div');
     div.className = 'reply-item bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4 border border-gray-100 dark:border-gray-700 fade-in';
