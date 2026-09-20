@@ -129,19 +129,39 @@ function subscribeToApprovalEvents() {
     const adminHex = window.ADMIN_PUBKEY_HEX;
     if (!adminHex) return;
     pool.subscribeMany(RELAYS, [{ kinds: [APPROVE_EVENT_KIND], authors: [adminHex] }], {
-        onevent: (ev) => {
+        onevent: async (ev) => {
             const target = ev.tags.find(t => t[0] === 'p')?.[1];
             if (!target) return;
-            if (ev.content === 'approve') {
+            // 🛠️ كان بيفحص ev.content === 'approve' مباشرة، لكن المحتوى
+            // دلوقتي بيحمل مفتاح التشفير المشفّر للمنصة (شوف approveUser)
+            // مش نص "approve" الصريح. نوع الحدث بقى في tag منفصل بدل كده.
+            const status = ev.tags.find(t => t[0] === 'status')?.[1]
+                || (ev.content === 'approve' ? 'approve' : (ev.content === 'revoke' ? 'revoke' : null)); // توافق مع أحداث قديمة قبل التعديل ده
+
+            if (status === 'approve') {
                 approvedPubkeys.add(target);
                 if (target === pk && myAccessStatus !== 'approved') {
+                    // 🔒 استخراج مفتاح تشفير المنصة من محتوى حدث الموافقة
+                    // (مشفّر ليّا تحديدًا بنفس قناة NIP-04 المستخدمة أصلاً
+                    // في التسجيل)، عشان نقدر نقرا ونكتب منشورات مشفّرة.
+                    if (ev.content && ev.content !== 'approve' && typeof decryptFromPubkey === 'function') {
+                        try {
+                            const plaintext = await decryptFromPubkey(ev.content, adminHex);
+                            const data = JSON.parse(plaintext);
+                            if (data.platformKey && typeof setPlatformKeyFromBase64 === 'function') {
+                                await setPlatformKeyFromBase64(data.platformKey);
+                            }
+                        } catch (e) {
+                            console.warn('[Registration] تعذر استخراج مفتاح التشفير من حدث الموافقة:', e);
+                        }
+                    }
                     myAccessStatus = 'approved';
                     saveApprovedCache();
                     hidePendingApproval();
                     hideAuthGate();
                     unlockApp();
                 }
-            } else if (ev.content === 'revoke') {
+            } else if (status === 'revoke') {
                 approvedPubkeys.delete(target);
                 if (target === pk) {
                     myAccessStatus = 'not_registered';
@@ -152,7 +172,7 @@ function subscribeToApprovalEvents() {
             }
             saveApprovedCache();
         },
-        oneose: () => { setTimeout(subscribeToApprovalEvents, 5000); }
+        oneose: () => { setTimeout(subscribeToApprovalEvents, 15000); }
     });
 }
 
@@ -185,7 +205,7 @@ function subscribeToRegistrationEvents() {
         onevent: async (ev) => {
             await processRegistrationEvent(ev);
         },
-        oneose: () => { setTimeout(subscribeToRegistrationEvents, 5000); }
+        oneose: () => { setTimeout(subscribeToRegistrationEvents, 15000); }
     });
 }
 
@@ -254,11 +274,24 @@ async function approveUser(pubkey) {
     if (pk !== adminHex) return;
     if (!pubkey) return;
     try {
+        // 🔒 لو مفيش مفتاح تشفير للمنصة لسه، نولّد واحد أول مرة —
+        // هيتستخدم لتشفير كل المنشورات من دلوقتي، وأي عضو نوافق عليه
+        // بعد كده هياخده مشفّر جواه حدث الموافقة نفسه.
+        if (typeof hasPlatformKey === 'function' && !hasPlatformKey()) {
+            await generatePlatformKey();
+        }
+        let content = 'approve';
+        if (typeof exportPlatformKeyBase64 === 'function') {
+            const keyBase64 = await exportPlatformKeyBase64();
+            if (keyBase64) {
+                content = await encryptToPubkey(JSON.stringify({ platformKey: keyBase64 }), pubkey);
+            }
+        }
         const ev = await signEvent({
             kind: APPROVE_EVENT_KIND,
             created_at: Math.floor(Date.now() / 1000),
-            tags: [['p', pubkey]],
-            content: 'approve'
+            tags: [['p', pubkey], ['status', 'approve']],
+            content
         });
         await publishToRelays(ev);
         approvedPubkeys.add(pubkey);
@@ -280,7 +313,7 @@ async function revokeUser(pubkey) {
         const ev = await signEvent({
             kind: APPROVE_EVENT_KIND,
             created_at: Math.floor(Date.now() / 1000),
-            tags: [['p', pubkey]],
+            tags: [['p', pubkey], ['status', 'revoke']],
             content: 'revoke'
         });
         await publishToRelays(ev);
