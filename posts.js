@@ -15,7 +15,7 @@ function startFeed() {
     try {
         let batchCount = 0;
         postsSubscription = pool.subscribeMany(RELAYS, [{ kinds: [1, 5, 6], limit: INITIAL_FEED_LIMIT, '#t': [APP_TAG] }], {
-            onevent: event => {
+            onevent: async event => {
                 if (!event?.id) return;
                 batchCount++;
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
@@ -26,7 +26,7 @@ function startFeed() {
                     if (seenEvents.has(event.id)) return;
                     seenEvents.add(event.id);
                     limitSet(seenEvents, MAX_SEEN_EVENTS);
-                    renderRepost(event);
+                    await renderRepost(event);
                     scheduleReorderFeed();
                     return;
                 }
@@ -38,10 +38,17 @@ function startFeed() {
                 seenEvents.add(event.id);
                 limitSet(seenEvents, MAX_SEEN_EVENTS);
 
+                // 🔒 فك تشفير المحتوى (لو مشفّر بنظام تشفير المنصة) قبل
+                // ما نخزّنه أو نعرضه — resolveDisplayContent بترجع نص
+                // عادي زي ما هو لو البوست مش مشفّر أصلاً (بوستات قديمة).
+                const displayContent = typeof resolveDisplayContent === 'function'
+                    ? await resolveDisplayContent(event.content)
+                    : event.content;
+
                 initPostState(event.id, event.created_at);
                 updatePostScore(event.id);
-                postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
-                renderPost(event);
+                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
+                renderPost(event, displayContent);
                 scheduleReorderFeed();
                 scheduleReactionResubscribe();
             },
@@ -136,7 +143,7 @@ function insertPostCard(card) {
     if (!inserted) container.appendChild(card);
 }
 
-function renderPost(event) {
+function renderPost(event, displayContent) {
     const container = $('feed-container');
     if (!container) return;
     if (renderedPosts.has(event.id)) return;
@@ -145,7 +152,10 @@ function renderPost(event) {
         hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
     });
     const displayName = getDisplayName(event.pubkey);
-    const contentHtml = renderMediaContent(event.content);
+    // لو محدّش مرّر محتوى جاهز (مفكوك التشفير)، بنستخدم الخام كاحتياطي —
+    // ده بيغطي بوستات قديمة مش مشفّرة أصلاً، لأن renderMediaContent
+    // مش بيتأثر لو النص مش بادئ بعلامة التشفير.
+    const contentHtml = renderMediaContent(displayContent !== undefined ? displayContent : event.content);
 
     const div = document.createElement('div');
     div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
@@ -236,15 +246,23 @@ async function repostPost(postId, postPubkey) {
             kind: 1,
             tags: []
         });
+        // 🔒 نشفّر الـ JSON كله بمفتاح المنصة، وإلا محتوى البوست الأصلي
+        // كان هيتسرّب بشكل مقروء جوه حدث إعادة النشر حتى لو البوست
+        // الأصلي نفسه كان مشفّر.
+        let repostContent = originalEventJson;
+        if (typeof hasPlatformKey === 'function' && hasPlatformKey()) {
+            try { repostContent = await encryptContent(originalEventJson); }
+            catch (e) { console.warn('[Posts] فشل تشفير إعادة النشر:', e); }
+        }
         const event = await signEvent({
             kind: 6,
             created_at: Math.floor(Date.now() / 1000),
             tags: [['e', postId], ['p', postPubkey], ['t', APP_TAG]],
-            content: originalEventJson
+            content: repostContent
         });
         await publishToRelays(event);
         showToast('تم إعادة النشر 🔁', 'success');
-        renderRepost(event);
+        await renderRepost(event);
         scheduleReorderFeed();
     } catch (e) {
         showToast('فشل إعادة النشر: ' + getErrorMessage(e), 'error');
@@ -280,18 +298,21 @@ async function unrepostPost(repostEventId, originalPostId) {
     }
 }
 
-function renderRepost(event) {
+async function renderRepost(event) {
     const container = $('feed-container');
     if (!container) return;
 
     let original;
     try {
-        original = JSON.parse(event.content);
+        const rawContent = typeof resolveDisplayContent === 'function'
+            ? await resolveDisplayContent(event.content)
+            : event.content;
+        original = JSON.parse(rawContent);
         if (!original?.id || !original?.pubkey || typeof original.content !== 'string') throw new Error('invalid');
     } catch (e) {
         // المُعيد نشره ما ضمّنش محتوى المنشور الأصلي جوه الحدث (بعض
-        // العملاء بتسيب المحتوى فاضي) — مفيش حاجة نعرضها من غيره، فبنتجاهله
-        // بدل ما نعمل طلب شبكة إضافي لجلبه لوحده.
+        // العملاء بتسيب المحتوى فاضي)، أو تعذّر فك التشفير — مفيش حاجة
+        // نعرضها من غيره، فبنتجاهله بدل ما نعمل طلب شبكة إضافي لجلبه لوحده.
         return;
     }
     if (isHidden(original.pubkey) || isHidden(event.pubkey)) return;
@@ -632,7 +653,18 @@ async function publishPost() {
     if (!checkRateLimit('publishPost', 3000, 8, 5 * 60 * 1000)) return;
 
     const mediaUrls = pendingAttachments.map(a => a.url);
-    const content = [text, ...mediaUrls].filter(Boolean).join('\n');
+    let content = [text, ...mediaUrls].filter(Boolean).join('\n');
+
+    // 🔒 نشفّر محتوى المنشور بمفتاح المنصة المشترك، عشان أي حد مش عضو
+    // مقبول (حتى لو بيسأل الـ relays مباشرة من برّه التطبيق) يشوف بس
+    // نص مشفّر مش مفهوم. لو المفتاح مش موجود لأي سبب (حالة نادرة)،
+    // بننشر نص عادي بس بنوضح ده للمستخدم بدل ما يحصل بصمت.
+    if (typeof hasPlatformKey === 'function' && hasPlatformKey()) {
+        try { content = await encryptContent(content); }
+        catch (e) { console.warn('[Posts] فشل التشفير، هيتنشر كنص عادي:', e); }
+    } else if (typeof hasPlatformKey === 'function') {
+        showToast('⚠️ مفتاح التشفير مش متاح — هينشر كنص عادي غير مشفّر', 'error');
+    }
 
     try {
         const event = await signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [['t', APP_TAG]], content });
@@ -699,14 +731,14 @@ async function loadMorePosts() {
 
         let batchCount = 0;
         const sub = pool.subscribeMany(RELAYS, [{ kinds: [1, 5, 6], '#t': [APP_TAG], until: oldest, limit: 100 }], {
-            onevent: event => {
+            onevent: async event => {
                 if (!event?.id) return;
                 batchCount++;
                 if (event.kind === 5) { handleDeleteEvent(event); return; }
                 if (isRepostEvent(event)) {
                     if (seenEvents.has(event.id)) return;
                     seenEvents.add(event.id);
-                    renderRepost(event);
+                    await renderRepost(event);
                     scheduleReorderFeed();
                     return;
                 }
@@ -717,10 +749,13 @@ async function loadMorePosts() {
                 if (isHidden(event.pubkey)) return;
                 if (seenEvents.has(event.id) || tombstonedEvents.has(event.id)) return;
                 seenEvents.add(event.id);
+                const displayContent = typeof resolveDisplayContent === 'function'
+                    ? await resolveDisplayContent(event.content)
+                    : event.content;
                 initPostState(event.id, event.created_at);
                 updatePostScore(event.id);
-                postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
-                renderPost(event);
+                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
+                renderPost(event, displayContent);
                 scheduleReorderFeed();
                 scheduleReactionResubscribe();
             },
