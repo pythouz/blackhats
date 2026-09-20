@@ -765,7 +765,7 @@ function loadProfilePosts(pubkey, until) {
     console.log('[Profile] جلب منشورات لـ', pubkey, filters);
 
     profilePostsSubscription = pool.subscribeMany(RELAYS, [filters], {
-        onevent: (event) => {
+        onevent: async (event) => {
             if (event.kind === 5) return;
             if (isHidden(event.pubkey)) return;
             if (tombstonedEvents.has(event.id)) return;
@@ -777,6 +777,9 @@ function loadProfilePosts(pubkey, until) {
             // فمش المفروض يظهر في صفحة البروفايل كأنه بوست.
             if (isReplyEvent(event)) return;
             console.log('[Profile] وصول منشور:', event.id);
+            const displayContent = typeof resolveDisplayContent === 'function'
+                ? await resolveDisplayContent(event.content)
+                : event.content;
             // 🛠️ الكود ده كان ناقص تمامًا قبل كده: من غيره postStats
             // ما كانش عنده أي بيانات عن بوستات البروفايل دي، فأي محاولة
             // لايك لبوست قديم (مش موجود في الفيد الرئيسي حاليًا) كانت
@@ -784,9 +787,9 @@ function loadProfilePosts(pubkey, until) {
             // المستخدمة في الفيد الرئيسي بالظبط.
             if (!postStats.has(event.id)) {
                 initPostState(event.id, event.created_at);
-                postContentMap.set(event.id, { content: event.content, created_at: event.created_at });
+                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
             }
-            renderProfilePost(event);
+            renderProfilePost(event, displayContent);
             scheduleReactionResubscribe();
         },
         oneose: () => {
@@ -805,7 +808,7 @@ function loadProfilePosts(pubkey, until) {
     });
 }
 
-function renderProfilePost(event) {
+function renderProfilePost(event, displayContent) {
     const container = document.getElementById('profile-posts-container');
     if (!container) return;
     if (container.querySelector(`.post-card[data-post-id="${CSS.escape(event.id)}"]`)) return;
@@ -813,7 +816,7 @@ function renderProfilePost(event) {
     try {
         const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' });
         const displayName = getDisplayName(event.pubkey);
-        const contentHtml = renderMediaContent(event.content);
+        const contentHtml = renderMediaContent(displayContent !== undefined ? displayContent : event.content);
         const div = document.createElement('div');
         div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
         div.dataset.postId = event.id;
@@ -866,17 +869,20 @@ function renderProfilePost(event) {
     }
 }
 
-function renderProfileRepost(event) {
+async function renderProfileRepost(event) {
     const container = document.getElementById('profile-posts-container');
     if (!container) return;
     if (container.querySelector(`.post-card[data-repost-event-id="${CSS.escape(event.id)}"]`)) return;
 
     let original;
     try {
-        original = JSON.parse(event.content);
+        const rawContent = typeof resolveDisplayContent === 'function'
+            ? await resolveDisplayContent(event.content)
+            : event.content;
+        original = JSON.parse(rawContent);
         if (!original?.id || !original?.pubkey || typeof original.content !== 'string') throw new Error('invalid');
     } catch (e) {
-        return; // نفس ملاحظة renderRepost في posts.js — من غير محتوى مضمّن مقدرش أعرضه
+        return; // نفس ملاحظة renderRepost في posts.js — من غير محتوى مضمّن (أو تعذّر فك تشفيره) مقدرش أعرضه
     }
     if (isHidden(original.pubkey) || isHidden(event.pubkey)) return;
     if (container.querySelector(`.post-card[data-post-id="${CSS.escape(original.id)}"]`)) return;
