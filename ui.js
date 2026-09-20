@@ -34,9 +34,15 @@ function switchView(viewName) {
 
 function updateSettingsUI() {
     const adminBtn = document.getElementById('settings-admin-btn');
+    const isAdmin = window.isCurrentUserAdmin ? window.isCurrentUserAdmin() : false;
     if (adminBtn) {
-        const isAdmin = window.isCurrentUserAdmin ? window.isCurrentUserAdmin() : false;
         adminBtn.classList.toggle('hidden', !isAdmin);
+    }
+    const keySection = document.getElementById('settings-encryption-key');
+    if (keySection) {
+        // 🔒 مفتاح التشفير جزء أساسي من الإدارة — الأدمن بس اللي يقدر
+        // يشوفه وينسخه (هو أصلاً الوحيد اللي عنده صلاحية يولّده/يوزّعه).
+        keySection.classList.toggle('hidden', !isAdmin);
     }
 }
 
