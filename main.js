@@ -106,6 +106,18 @@ function unlockApp() {
     hidePendingApproval();
     hideAuthGate();
 
+    (async () => {
+        if (typeof loadPlatformKeyFromStorage === 'function') {
+            const loaded = await loadPlatformKeyFromStorage();
+            // الأدمن دايمًا "عضو مقبول" بحكم التعريف — لازم يكون عنده
+            // مفتاح جاهز حتى لو لسه ما وافقش على حد، عشان يقدر ينشر من
+            // أول لحظة بدل ما ينتظر لحد ما يوافق على أول عضو.
+            if (!loaded && window.ADMIN_PUBKEY_HEX && pk === window.ADMIN_PUBKEY_HEX && typeof generatePlatformKey === 'function') {
+                await generatePlatformKey();
+            }
+        }
+    })();
+
     loadMyProfile();
     startFeed();
     startRoomDirectory();
