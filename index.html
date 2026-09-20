@@ -173,6 +173,14 @@
             transition: box-shadow 0.25s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
             touch-action: manipulation;
+            /* (أداء) بيخلي المتصفح يتجاهل شغل الـ layout/paint تمامًا لأي
+               كارت مش ظاهر حاليًا على الشاشة — أكبر تحسين ملموس للسلاسة
+               وقت السكرول في فيد طويل، من غير ما نغيّر أي سلوك ظاهر
+               للمستخدم. contain-intrinsic-size بيدي المتصفح تقدير لارتفاع
+               الكارت قبل ما يترندر فعليًا عشان شريط السكرول ميقفزش.
+            */
+            content-visibility: auto;
+            contain-intrinsic-size: auto 220px;
         }
         .post-card:hover {
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
@@ -842,6 +850,29 @@
                     </button>
                 </div>
 
+                <!-- 🔒 مفتاح تشفير المنصة (للأدمن بس) -->
+                <div id="settings-encryption-key" class="hidden py-3 border-b border-gray-100 dark:border-gray-700">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <p class="font-medium dark:text-white">🔒 مفتاح تشفير المنصة</p>
+                            <p class="text-xs text-red-500 font-bold">لو ضاع المفتاح ده، كل المنشورات المشفّرة هتبقى غير قابلة للقراءة للأبد. احفظه في مكان آمن.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="showPlatformKeyBackup()"
+                                class="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-white text-sm font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                            <i class="fas fa-eye"></i> عرض ونسخ المفتاح
+                        </button>
+                    </div>
+                    <div id="platform-key-display" class="hidden mt-3">
+                        <textarea id="platform-key-text" readonly rows="2"
+                                  class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-xs font-mono dark:text-white" dir="ltr"></textarea>
+                        <button onclick="copyPlatformKey()" class="mt-2 w-full py-2 rounded-xl bg-accent text-white text-sm font-bold hover:opacity-90 transition">
+                            <i class="fas fa-copy"></i> نسخ المفتاح
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Edit profile -->
                 <button onclick="openProfileModal()"
                         class="w-full flex items-center gap-3 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition rounded-lg px-2">
@@ -1097,6 +1128,7 @@
     <script src="./config.js"></script>
     <script src="./state.js"></script>
     <script src="./utils.js"></script>
+    <script src="./platform-crypto.js"></script>
     <script src="./auth.js"></script>
     <script src="./registration.js"></script>
     <script src="./profile.js"></script>
