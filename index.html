@@ -941,6 +941,29 @@
         </div>
     </div>
 
+    <!-- ========== QUOTE MODAL (اقتباس مع تعليق) ========== -->
+    <div id="quote-modal"
+         class="hidden fixed inset-0 z-[80] modal-overlay flex items-end sm:items-center justify-center p-4">
+        <div class="bg-white dark:bg-surface w-full max-w-md rounded-3xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg dark:text-white">اقتباس مع تعليق</h3>
+                <button onclick="closeQuoteModal()"
+                        class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition">
+                    <i class="fas fa-times text-gray-500"></i>
+                </button>
+            </div>
+            <textarea id="quote-input" rows="3" placeholder="اكتب تعليقك على المنشور..."
+                      class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-sm resize-none outline-none focus:ring-2 focus:ring-accent dark:text-white"></textarea>
+            <div id="quote-preview" class="border border-gray-200 dark:border-gray-700 rounded-2xl p-3 mt-3"></div>
+            <div class="flex justify-end gap-3 mt-4">
+                <button onclick="closeQuoteModal()"
+                        class="px-5 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition">إلغاء</button>
+                <button onclick="confirmQuote()"
+                        class="px-6 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-accent to-accent2 text-white hover:opacity-90 transition">نشر الاقتباس</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ========== ZAP MODAL ========== -->
     <div id="zap-modal"
          class="hidden fixed inset-0 z-[80] modal-overlay flex items-end sm:items-center justify-center p-4">
