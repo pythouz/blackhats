@@ -47,7 +47,7 @@ function startFeed() {
 
                 initPostState(event.id, event.created_at);
                 updatePostScore(event.id);
-                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
+                postContentMap.set(event.id, { content: resolvePostContentForStorage(event, displayContent), created_at: event.created_at });
                 renderPost(event, displayContent);
                 scheduleReorderFeed();
                 scheduleReactionResubscribe();
@@ -155,7 +155,14 @@ function renderPost(event, displayContent) {
     // لو محدّش مرّر محتوى جاهز (مفكوك التشفير)، بنستخدم الخام كاحتياطي —
     // ده بيغطي بوستات قديمة مش مشفّرة أصلاً، لأن renderMediaContent
     // مش بيتأثر لو النص مش بادئ بعلامة التشفير.
-    const contentHtml = renderMediaContent(displayContent !== undefined ? displayContent : event.content);
+    const rawContent = displayContent !== undefined ? displayContent : event.content;
+
+    // 🆕 اقتباس مع تعليق: المحتوى JSON مش نص عادي — {text, quoted:{...}}.
+    // لو فشل الـ parse (بوست قديم/تالف رغم وجود تاج q)، بنرجع نعرضه
+    // كبوست عادي بمحتواه الخام بدل ما نكسر الفيد كله.
+    const quotePayload = parseQuotePayload(event, rawContent);
+    const contentHtml = renderMediaContent(quotePayload ? quotePayload.text : rawContent);
+    const quotedBoxHtml = quotePayload ? renderQuotedPostBox(quotePayload.quoted) : '';
 
     const div = document.createElement('div');
     div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
@@ -173,12 +180,13 @@ function renderPost(event, displayContent) {
             </div>
             ${event.pubkey === pk ? `
             <div class="flex gap-1 flex-shrink-0">
-                <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
+                ${quotePayload ? '' : `<button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>`}
                 <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
             </div>
             ` : ''}
         </div>
         <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
+        ${quotedBoxHtml}
         <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
             <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${event.id}', '${event.pubkey}')" data-liked="false" data-postid="${event.id}">
                 <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
@@ -192,6 +200,9 @@ function renderPost(event, displayContent) {
             </button>
             <button class="repost-button flex items-center gap-1 hover:text-emerald-500 transition" onclick="repostPost('${event.id}', '${event.pubkey}')" title="إعادة نشر">
                 <i class="fas fa-retweet"></i>
+            </button>
+            <button class="quote-button flex items-center gap-1 hover:text-sky-500 transition" onclick="quotePost('${event.id}', '${event.pubkey}')" title="اقتباس مع تعليق">
+                <i class="fas fa-quote-right"></i>
             </button>
             <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${event.id}')" data-postid="${event.id}" title="حفظ">
                 <i class="fas fa-bookmark"></i>
@@ -212,7 +223,7 @@ function renderPost(event, displayContent) {
     if (feedReady && !loadingMore) fetchLikesForNewPost(event.id);
     limitMap(renderedPosts, MAX_RENDERED_POSTS);
     insertPostCard(div);
-    fetchProfiles([event.pubkey]);
+    fetchProfiles(quotePayload ? [event.pubkey, quotePayload.quoted.pubkey] : [event.pubkey]);
 
     addBanButtonToPost(div, event.pubkey);
     processPendingReplies(event.id);
@@ -225,6 +236,68 @@ function renderPost(event, displayContent) {
 
 function isRepostEvent(event) {
     return event.kind === 6;
+}
+
+// ============================
+// 9ج. الاقتباس مع تعليق (Quote-post)
+// ============================
+// 🛠️ منشور الاقتباس هو حدث kind:1 عادي (له لايكاته وردوده الخاصة، بيظهر
+// في الفيد زي أي بوست)، لكن بتاج 'q' يشاور على المنشور المُقتبَس —
+// عمدًا مش تاج 'e'، لأن isReplyEvent فوق بتعتبر أي حدث kind:1 فيه تاج
+// 'e' "رد" وتوديه لمسار الردود بدل الفيد الرئيسي. لازم نفضل نستخدم 'q'
+// عشان الاقتباس يتعامل معه كمنشور مستقل.
+
+function isQuoteEvent(event) {
+    return event.kind === 1 && event.tags?.some(t => t[0] === 'q' && t[1]);
+}
+
+// بيحاول يفكّك محتوى منشور اقتباس (المفروض يكون JSON بصيغة
+// {text, quoted:{id,pubkey,content,created_at}}) لنص التعليق + بيانات
+// المنشور المُقتبَس. بيرجع null لو الحدث مش اقتباس أصلاً، أو لو المحتوى
+// تالف/مش الصيغة المتوقعة — بدل ما نكسر عرض الفيد كله لبوست واحد بايظ،
+// بيتعامل معه في الطرف التاني كبوست عادي بمحتواه الخام.
+function parseQuotePayload(event, displayContent) {
+    if (!isQuoteEvent(event) || typeof displayContent !== 'string') return null;
+    try {
+        const parsed = JSON.parse(displayContent);
+        if (parsed && typeof parsed.text === 'string' && parsed.quoted?.id && parsed.quoted?.pubkey) {
+            return parsed;
+        }
+    } catch (e) { /* مش JSON صالح */ }
+    return null;
+}
+
+// المحتوى اللي المفروض يتخزّن في postContentMap لأي بوست جديد وصل —
+// نص التعليق بس لو اقتباس (مش الـ JSON كله بالمُقتبَس جواه)، عشان
+// البحث النصي والمحفوظات والإشعارات (كلها بتقرا postContentMap مباشرة)
+// تعرض نص مفهوم بدل JSON خام. لو حد عمل ريبوست لبوست اقتباس، النسخة
+// المُضمّنة في الريبوست هتبقى نص التعليق بس بدون المُقتبَس المتداخل —
+// حد معروف ومقبول، أبسط من التعامل مع تعشيش اقتباسات جوه بعض.
+function resolvePostContentForStorage(event, displayContent) {
+    const q = parseQuotePayload(event, displayContent);
+    return q ? q.text : displayContent;
+}
+
+function renderQuotedPostBox(quoted) {
+    if (!quoted?.id || !quoted?.pubkey) return '';
+    const qTime = new Date((quoted.created_at || 0) * 1000).toLocaleString('ar-EG', {
+        hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
+    });
+    const qName = getDisplayName(quoted.pubkey);
+    const qContentHtml = renderMediaContent(quoted.content || '');
+    return `
+        <div class="quoted-post-box border border-gray-200 dark:border-gray-700 rounded-2xl p-3 mb-4" data-pubkey="${quoted.pubkey}">
+            <div class="flex items-center gap-2 mb-1.5">
+                <div class="avatar-slot flex-shrink-0">${avatarHtml(quoted.pubkey, 'w-6 h-6 text-[10px]')}</div>
+                <span class="quoted-author-name font-bold text-xs dark:text-white truncate cursor-pointer hover:underline" onclick="openProfilePage('${quoted.pubkey}')">${escapeHtml(qName)}</span>
+                <span class="text-[11px] text-gray-400 flex-shrink-0">${escapeHtml(qTime)}</span>
+                <button class="mr-auto text-gray-400 hover:text-accent transition flex-shrink-0" onclick="scrollToPost('${quoted.id}')" title="عرض المنشور الأصلي">
+                    <i class="fas fa-link text-[11px]"></i>
+                </button>
+            </div>
+            <div class="text-xs text-gray-600 dark:text-gray-300 max-h-24 overflow-hidden whitespace-pre-wrap break-words">${qContentHtml}</div>
+        </div>
+    `;
 }
 
 async function repostPost(postId, postPubkey) {
@@ -367,6 +440,9 @@ async function renderRepost(event) {
                 <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
             </button>
             ${repostBtnHtml}
+            <button class="quote-button flex items-center gap-1 hover:text-sky-500 transition" onclick="quotePost('${original.id}', '${original.pubkey}')" title="اقتباس مع تعليق">
+                <i class="fas fa-quote-right"></i>
+            </button>
             <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${original.id}')" data-postid="${original.id}" title="حفظ">
                 <i class="fas fa-bookmark"></i>
             </button>
@@ -389,6 +465,101 @@ async function renderRepost(event) {
     fetchProfiles([original.pubkey, event.pubkey]);
     processPendingReplies(original.id);
     if (bookmarkedPostIds.has(original.id)) refreshBookmarkButtons();
+}
+
+// ============================
+// 9د. الاقتباس مع تعليق (Compose flow)
+// ============================
+
+let quoteTarget = null;
+
+function quotePost(postId, postPubkey) {
+    if (!pk) { showToast('لا توجد هوية', 'error'); return; }
+    const original = postContentMap.get(postId);
+    if (!original) { showToast('تعذر إيجاد محتوى المنشور', 'error'); return; }
+    quoteTarget = { postId, postPubkey, content: original.content, created_at: original.created_at };
+    openQuoteModal();
+}
+
+function openQuoteModal() {
+    const modal = $('quote-modal');
+    const input = $('quote-input');
+    const preview = $('quote-preview');
+    if (!modal || !input || !quoteTarget) return;
+    input.value = '';
+    if (preview) {
+        const qName = getDisplayName(quoteTarget.postPubkey);
+        preview.innerHTML = `
+            <div class="flex items-center gap-2 mb-1.5">
+                <div class="avatar-slot flex-shrink-0">${avatarHtml(quoteTarget.postPubkey, 'w-6 h-6 text-[10px]')}</div>
+                <span class="font-bold text-xs dark:text-white truncate">${escapeHtml(qName)}</span>
+            </div>
+            <div class="text-xs text-gray-600 dark:text-gray-300 max-h-20 overflow-hidden whitespace-pre-wrap break-words">${renderMediaContent(quoteTarget.content)}</div>
+        `;
+    }
+    modal.classList.remove('hidden');
+    setTimeout(() => input.focus(), 50);
+}
+
+function closeQuoteModal() {
+    $('quote-modal')?.classList.add('hidden');
+    quoteTarget = null;
+}
+
+async function confirmQuote() {
+    if (!quoteTarget) { showToast('لا يوجد منشور مقتبَس', 'error'); return; }
+    if (!pk) { showToast('لا توجد هوية', 'error'); return; }
+
+    const input = $('quote-input');
+    const text = (input?.value || '').trim();
+    if (!text) { showToast('اكتب تعليقك على الاقتباس', 'error'); return; }
+    if (text.length > 4000) { showToast('النص طويل جدًا', 'error'); return; }
+    if (!checkRateLimit('confirmQuote', 3000, 8, 5 * 60 * 1000)) return;
+
+    const { postId, postPubkey, content, created_at } = quoteTarget;
+    // نفس فكرة NIP-18 في repostPost فوق: بنضمّن نسخة من المنشور الأصلي
+    // جوه المحتوى عشان أي حد يستقبل الاقتباس يقدر يعرض الاثنين (تعليقك +
+    // المُقتبَس) فورًا من غير طلب شبكة إضافي.
+    const payload = { text, quoted: { id: postId, pubkey: postPubkey, content, created_at } };
+    const plainJson = JSON.stringify(payload);
+
+    // 🔒 نفس منطق تشفير البوستات العادية — الحمولة كلها (تعليق + نسخة
+    // المُقتبَس) بتتشفّر كبلوك واحد بمفتاح المنصة.
+    let eventContent = plainJson;
+    if (typeof hasPlatformKey === 'function' && hasPlatformKey()) {
+        try { eventContent = await encryptContent(plainJson); }
+        catch (e) { console.warn('[Posts] فشل تشفير الاقتباس:', e); }
+    }
+
+    try {
+        // تاج 'q' مش 'e' — شوف ملاحظة isQuoteEvent فوق. 'p' بنضيفه عشان
+        // صاحب المنشور الأصلي ياخد إشعار (نفس فلتر الإشعارات بيراقب أي
+        // حدث فيه تاج p بمفتاحه).
+        const event = await signEvent({
+            kind: 1,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['q', postId, '', postPubkey], ['p', postPubkey], ['t', APP_TAG]],
+            content: eventContent
+        });
+        await publishToRelays(event);
+        closeQuoteModal();
+
+        if (!seenEvents.has(event.id)) {
+            seenEvents.add(event.id);
+            initPostState(event.id, event.created_at);
+            // بنخزّن نص التعليق بس (مش الـ JSON كله) — شوف
+            // resolvePostContentForStorage فوق لنفس المنطق في استقبال
+            // الاقتباسات الجايه من الشبكة.
+            postContentMap.set(event.id, { content: text, created_at: event.created_at });
+            updatePostScore(event.id);
+            renderPost(event, plainJson);
+            reorderFeed();
+            scheduleReactionResubscribe();
+        }
+        showToast('تم نشر الاقتباس 💬', 'success');
+    } catch (error) {
+        showToast('فشل نشر الاقتباس: ' + getErrorMessage(error), 'error');
+    }
 }
 
 async function deletePost(postId) {
@@ -754,7 +925,7 @@ async function loadMorePosts() {
                     : event.content;
                 initPostState(event.id, event.created_at);
                 updatePostScore(event.id);
-                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
+                postContentMap.set(event.id, { content: resolvePostContentForStorage(event, displayContent), created_at: event.created_at });
                 renderPost(event, displayContent);
                 scheduleReorderFeed();
                 scheduleReactionResubscribe();
