@@ -647,6 +647,25 @@ function addNotification(event) {
         return;
     }
 
+    // 🆕 اقتباس مع تعليق: حدث kind:1 عادي بتاج 'q' بدل 'e' (شوف
+    // isQuoteEvent في posts.js) — لازم نميّزه هنا الأول، وإلا هيوصل
+    // للسطر "reply" الافتراضي تحت وهيتجاهل بصمت لأنه مالوش تاج 'e'
+    // خالص (getTagValue(event.tags, 'e') هترجع undefined و postId
+    // هيفضل فاضي). postId هنا بيبقى id الاقتباس نفسه (مش المنشور
+    // الأصلي) عشان لما المستخدم يضغط على الإشعار يشوف تعليق المُقتبِس
+    // فعليًا (اللي هو أصلاً عارض نسخة من منشوره جواه).
+    if (typeof isQuoteEvent === 'function' && isQuoteEvent(event)) {
+        notifications.unshift({ id: event.id, type: 'quote', postId: event.id, fromPubkey: event.pubkey, createdAt: event.created_at, read: false });
+        if (notifications.length > 100) notifications.length = 100;
+        unreadNotifCount++;
+        saveNotifState();
+        renderNotifBadge();
+        fetchProfiles([event.pubkey]);
+        const qPanel = $('notifications-panel');
+        if (qPanel && !qPanel.classList.contains('hidden')) renderNotificationsPanel();
+        return;
+    }
+
     const type = event.kind === 7 ? 'like' : (event.kind === 6 ? 'repost' : 'reply');
     let postId;
     if (type === 'reply') {
@@ -698,8 +717,8 @@ function renderNotificationsPanel() {
 
     list.innerHTML = notifications.map(n => {
         const name = escapeHtml(getDisplayName(n.fromPubkey));
-        const verb = n.type === 'like' ? 'أعجب بمنشورك' : (n.type === 'repost' ? 'أعاد نشر منشورك' : (n.type === 'follow' ? 'بدأ متابعتك' : 'ردّ عليك'));
-        const icon = n.type === 'like' ? 'fa-heart text-red-500' : (n.type === 'repost' ? 'fa-retweet text-emerald-500' : (n.type === 'follow' ? 'fa-user-plus text-accent2' : 'fa-comment text-accent'));
+        const verb = n.type === 'like' ? 'أعجب بمنشورك' : (n.type === 'repost' ? 'أعاد نشر منشورك' : (n.type === 'quote' ? 'اقتبس منشورك' : (n.type === 'follow' ? 'بدأ متابعتك' : 'ردّ عليك')));
+        const icon = n.type === 'like' ? 'fa-heart text-red-500' : (n.type === 'repost' ? 'fa-retweet text-emerald-500' : (n.type === 'quote' ? 'fa-quote-right text-sky-500' : (n.type === 'follow' ? 'fa-user-plus text-accent2' : 'fa-comment text-accent')));
         return `
             <button onclick="openNotification('${n.id}')"
                     class="w-full flex items-center gap-3 p-3 rounded-2xl text-right transition hover:bg-gray-50 dark:hover:bg-gray-800/60 ${n.read ? '' : 'bg-accent/5 dark:bg-accent/10'}">
