@@ -1,202 +1,579 @@
 /* =========================================================
-   Pulse — state.js
-   متغيرات الحالة العامة المشتركة بين كل الملفات
+   Pulse — rooms.js
+   الغرف الصوتية WebRTC (عبر PeerJS و Nostr)
    ========================================================= */
 
 // ============================
-// 2. الحالة العامة
+// 16. الغرف الصوتية
 // ============================
 
-let secretKeyHex = null;
-let pk = null;
-let npub = null;
-let usingNip07 = false;
-const storageKey = 'pulse_nsec_hex';
+async function toggleRoom() {
+    if (isJoiningRoom) return;
+    const input = $('room-input');
+    const btn = $('btn-join-room');
+    if (!input || !btn) return;
 
-const pool = new NostrTools.SimplePool();
+    if (currentRoom) {
+        await leaveRoom();
+        return;
+    }
 
-// الحالة الأساسية
-const seenEvents = new Set();
-const renderedPosts = new Map();      // postId -> HTMLElement
-const postScores = new Map();         // postId -> number
-const profileCache = new Map();
-const postStats = new Map();          // postId -> { likes, replies, createdAt, myLikeEventId }
-const postContentMap = new Map();     // postId -> { content, created_at }
+    const roomName = safeRoomName(input.value.trim());
+    if (!roomName) { showToast('أدخل اسم الغرفة', 'error'); return; }
 
-// نظام إعجابات حقيقي
-const postLikers = new Map();         // postId -> Map(pubkey -> likeEventId)
-const likeEventIndex = new Map();     // likeEventId -> { postId, pubkey }
-const tombstonedEvents = new Set();   // eventIds اتحذفت
+    isJoiningRoom = true;
+    btn.disabled = true;
+    btn.textContent = 'جاري الاتصال...';
 
-// ردود معلقة (لحل مشكلة الرفرش)
-const pendingRepliesMap = new Map();  // rootId -> [event, ...]
-
-// ============================
-// نظام الحظر (جديد)
-// ============================
-const bannedPubkeys = new Set();      // مجموعة المفاتيح العامة المحظورة
-
-// ============================
-// نظام التسجيل بموافقة الإدارة (جديد)
-// ============================
-const approvedPubkeys = new Set();      // المستخدمين الموافق عليهم من المدير
-const pendingRegistrations = new Map(); // pubkey -> { email, phone, created_at, eventId } (تُفك تشفيرها للمدير فقط)
-let myAccessStatus = 'checking';        // 'checking' | 'not_registered' | 'pending' | 'approved'
-
-// (إضافة) متغيرات بوابة الدخول
-let authGateVisible = false;
-let authGateMode = 'login'; // 'login' | 'register'
-
-function initPostState(id, createdAt) {
-    postStats.set(id, { likes: 0, replies: 0, createdAt, myLikeEventId: null });
-    postLikers.set(id, new Map());
+    try {
+        await joinRoom(roomName);
+    } catch (error) {
+        showToast('فشل الدخول: ' + getErrorMessage(error), 'error');
+        isJoiningRoom = false;
+        btn.disabled = false;
+        btn.textContent = 'دخول';
+    }
 }
 
-let postsSubscription = null;
-let reactionsSubscription = null;
-let reactionResubscribeTimer = null;
+async function joinRoom(roomName) {
+    if (currentRoom) await leaveRoom();
 
-function scheduleReactionResubscribe() {
-    if (reactionResubscribeTimer) clearTimeout(reactionResubscribeTimer);
-    reactionResubscribeTimer = setTimeout(() => {
-        reactionResubscribeTimer = null;
-        startReactionSubscription();
-        if (typeof startZapsSubscription === 'function') startZapsSubscription();
-    }, 700);
+    // طلب المايكروفون
+    if (!localStream) {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        } catch (e) {
+            throw new Error('لا يمكن الوصول إلى المايكروفون: ' + e.message);
+        }
+    }
+
+    currentRoom = roomName;
+    localStorage.setItem('active_room', roomName);
+
+    // إنشاء Peer
+    if (!peer) {
+        myPeerId = 'pulse-' + pk.slice(0, 12) + '-' + Date.now().toString(36);
+        peer = new Peer(myPeerId, {
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+        // ✅ لازم نسمع لحدث 'call' عشان نرد على مكالمات المشاركين
+        // التانيين. من غيرها، الطرف اللي بيدخل الغرفة بيتصل بيه الناس
+        // الموجودين بالفعل (عن طريق connectToPeer)، بس هو نفسه ما بيردش
+        // على أي مكالمة واردة — يعني محدش كان بيسمع حد فعليًا.
+        peer.on('call', handleIncomingCall);
+        await new Promise((resolve, reject) => {
+            peer.on('open', resolve);
+            peer.on('error', reject);
+            setTimeout(() => reject(new Error('انتهى وقت انتظار Peer')), 10000);
+        });
+    }
+
+    // إعلان الحضور
+    await announcePresence(roomName);
+
+    // بدء الاستماع للمشاركين
+    listenForPeers(roomName);
+
+    // 🛠️ إعادة إعلان الحضور دوريًا (كل 45 ثانية) طول ما إحنا في الغرفة.
+    // من غيرها، إعلان حضورك بيتبعت مرة واحدة بس وقت الدخول، وأي حد يدخل
+    // الغرفة بعدك بفترة (أكتر من نافذة since في listenForPeers) مش هيلاقي
+    // إعلانك أصلاً ومش هيتصل بيك — وده اللي كان بيخلّي الاتصال محتاج
+    // ريفرش (الريفرش كان بيبعت إعلان حضور جديد بالصدفة عن طريق استعادة
+    // الغرفة، فكان بيظبط الاتصال بالغلط).
+    if (roomHeartbeatInterval) clearInterval(roomHeartbeatInterval);
+    roomHeartbeatInterval = setInterval(() => {
+        if (currentRoom) announcePresence(currentRoom).catch(() => {});
+        pruneStalePeers();
+    }, 45000);
+
+    // 🛠️ من غير التنظيف ده، لو حد قفل التاب فجأة أو وقع نتّه (من غير ما
+    // حدث "leave" يتبعت)، بيفضل ظاهر في قايمة المشاركين للأبد — ولو
+    // رجع دخل تاني بمعرف اتصال جديد، هتشوفه مرتين. التنظيف بيمسح أي حد
+    // ما بعتش أي إعلان حضور منذ فترة أطول من نافذة التتبّع.
+    function pruneStalePeers() {
+        const cutoff = Date.now() - ROOM_PRESENCE_TTL_MS * 2;
+        for (const [peerId, lastSeen] of peerLastSeen) {
+            if (lastSeen < cutoff) {
+                peerLastSeen.delete(peerId);
+                peerToPubkey.delete(peerId);
+                announcedPeers.delete(peerId);
+                const call = activeCalls.get(peerId);
+                if (call) {
+                    try { call.close(); } catch (e) {}
+                    call._audioElement?.remove();
+                    activeCalls.delete(peerId);
+                }
+            }
+        }
+        updatePeersList();
+    }
+
+    // تحديث الواجهة
+    const activeUI = $('active-room-ui');
+    const roomNameEl = $('current-room-name');
+    if (activeUI) activeUI.classList.remove('hidden');
+    if (roomNameEl) roomNameEl.textContent = roomName;
+
+    const btn = $('btn-join-room');
+    if (btn) {
+        btn.textContent = 'مغادرة';
+        btn.disabled = false;
+    }
+
+    isJoiningRoom = false;
+    showToast('دخلت الغرفة: ' + roomName, 'success');
+
+    // بدء VAD
+    startVAD();
 }
 
-// (أداء) reorderFeed() بتعمل querySelectorAll + sort + إعادة ترتيب DOM
-// لكل بوستات الفيد مرة واحدة — شغل مقبول لما تتنادى مرة واحدة، لكن لو
-// اتنادت لكل بوست لوحده أثناء دفعة كبيرة (تحميل أولي/تحميل المزيد) بقى
-// عندنا عمليًا إعادة ترتيب كاملة للـ DOM بعدد البوستات، بينما إحنا محتاجين
-// نعملها مرة واحدة بس بعد ما الدفعة كلها توصل. نفس فكرة الـ debounce
-// المستخدمة فوق لإعادة اشتراك التفاعلات.
-let reorderFeedTimer = null;
+async function leaveRoom() {
+    if (!currentRoom) return;
 
-function scheduleReorderFeed() {
-    if (reorderFeedTimer) clearTimeout(reorderFeedTimer);
-    reorderFeedTimer = setTimeout(() => {
-        reorderFeedTimer = null;
-        if (typeof reorderFeed === 'function') reorderFeed();
-    }, 150);
+    // 🛠️ إلغاء المؤقتات الخلفية الأول قبل أي حاجة تانية، عشان محدش
+    // منهم يحاول يعيد تشغيل نفسه بعد ما نبدأ ننضّف.
+    if (roomHeartbeatInterval) { clearInterval(roomHeartbeatInterval); roomHeartbeatInterval = null; }
+    if (roomListenTimer) { clearTimeout(roomListenTimer); roomListenTimer = null; }
+
+    // إيقاف المكالمات
+    for (const [peerId, call] of activeCalls) {
+        try { call.close(); } catch(e) {}
+    }
+    activeCalls.clear();
+    announcedPeers.clear();
+    peerToPubkey.clear();
+    peerLastSeen.clear();
+
+    // إلغاء الاشتراك
+    if (roomSubscription) {
+        try { roomSubscription.close(); } catch(e) {}
+        roomSubscription = null;
+    }
+
+    // إرسال حدث مغادرة (ephemeral)
+    try {
+        const event = await signEvent({
+            kind: ROOM_EVENT_KIND,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['t', currentRoom], ['p', pk], ['status', 'leave']],
+            content: ''
+        });
+        await publishToRelays(event);
+    } catch(e) {}
+
+    // 🛠️ ده كان ناقص تمامًا: من غيره المايك فاضل شغال (مؤشر الميكروفون
+    // فاضل شغّال في المتصفح) واتصال PeerJS فاضل حي في الخلفية حتى بعد
+    // "المغادرة" ظاهريًا — وده كان بيخلّي محاولة دخول تانية (لنفس الغرفة
+    // أو غرفة مختلفة) بتستخدم كائن peer قديم ممكن يكون في حالة غريبة،
+    // فمحتاج ريفرش كامل للصفحة عشان كل حاجة تتصفّر فعليًا.
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+    if (localStream) {
+        try { localStream.getTracks().forEach(track => track.stop()); } catch(e) {}
+        localStream = null;
+    }
+    if (vadAudioContext) {
+        try { vadAudioContext.close(); } catch(e) {}
+        vadAudioContext = null;
+    }
+    myPeerId = null;
+
+    currentRoom = null;
+    localStorage.removeItem('active_room');
+
+    // تحديث الواجهة
+    const activeUI = $('active-room-ui');
+    if (activeUI) activeUI.classList.add('hidden');
+
+    const btn = $('btn-join-room');
+    if (btn) {
+        btn.textContent = 'دخول';
+        btn.disabled = false;
+    }
+
+    const input = $('room-input');
+    if (input) input.value = '';
+
+    showToast('غادرت الغرفة', 'info');
 }
 
-// الغرف الصوتية
-const discoveredRooms = new Map();
-let directorySubscription = null;
-let directoryCleanupInterval = null;
+async function announcePresence(roomName) {
+    const event = await signEvent({
+        kind: ROOM_EVENT_KIND,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['t', roomName], ['p', pk], ['status', 'join'], ['peer', myPeerId]],
+        content: ''
+    });
+    await publishToRelays(event);
+}
 
-let localStream = null;
-let peer = null;
-let currentRoom = null;
-let roomSubscription = null;
-let myPeerId = null;
-let activeCalls = new Map();
-let announcedPeers = new Set();
-const peerLastSeen = new Map(); // peerId -> آخر وقت شفنا فيه إعلان حضور منه — عشان نكتشف ونشيل المشاركين اللي قطع اتصالهم فجأة (كراش/إغلاق تاب) من غير ما يبعتوا leave
-const peerToPubkey = new Map(); // معرّف اتصال PeerJS -> مفتاح Nostr — عشان نعرض اسم/صورة حقيقيين مش معرّف تقني
-let isMuted = false;
-let isJoiningRoom = false;
-let roomHeartbeatInterval = null;   // إعادة إعلان الحضور دوريًا طول ما إحنا في الغرفة
-let roomListenTimer = null;          // مؤقت إعادة اشتراك listenForPeers — لازم نلغيه لما نخرج
-let vadAudioContext = null;          // AudioContext بتاع كاشف الكلام — لازم يتقفل لما نخرج
+function listenForPeers(roomName) {
+    if (roomSubscription) {
+        try { roomSubscription.close(); } catch(e) {}
+    }
 
-let bgAudioContext = null;
-let silentAudioElement = null;
-let wakeLock = null;
+    // (أداء) الاشتراك ده بيتكرر كل 5 ثواني طول ما إحنا في الغرفة. من غير
+    // 'since'، كل مرة كان بيطلب من الـ relays *كل* أحداث join/leave اللي
+    // اتنشرت تحت التاج ده من الأول — رغم إن حضور الغرفة نفسه صلاحيته
+    // ROOM_PRESENCE_TTL_MS (90 ثانية) بس ومبيتفلترش محليًا إلا لو أحدث من
+    // كده. بنحط since بهامش أمان (ضعف مدة الصلاحية) عشان نضمن مفيش فجوة
+    // ونقلل حجم البيانات المطلوبة في كل دورة بشكل كبير.
+    const since = Math.floor(Date.now() / 1000) - Math.ceil((ROOM_PRESENCE_TTL_MS / 1000) * 2);
 
-// تحميل المزيد
-let oldestTimestamp = null;
-let loadingMore = false;
+    roomSubscription = pool.subscribeMany(RELAYS, [
+        { kinds: [ROOM_EVENT_KIND], '#t': [roomName], since }
+    ], {
+        onevent: (event) => {
+            if (event.pubkey === pk) return;
+            const status = getTagValue(event.tags, 'status');
+            const peerId = getTagValue(event.tags, 'peer');
+            if (!peerId) return;
+
+            if (status === 'join') {
+                peerToPubkey.set(peerId, event.pubkey);
+                peerLastSeen.set(peerId, Date.now());
+                fetchProfiles([event.pubkey]);
+                if (!announcedPeers.has(peerId)) {
+                    announcedPeers.add(peerId);
+                    connectToPeer(peerId, event.pubkey);
+                    updatePeersList();
+                }
+            } else if (status === 'leave') {
+                announcedPeers.delete(peerId);
+                peerToPubkey.delete(peerId);
+                peerLastSeen.delete(peerId);
+                const call = activeCalls.get(peerId);
+                if (call) {
+                    try { call.close(); } catch(e) {}
+                    activeCalls.delete(peerId);
+                }
+                updatePeersList();
+            }
+        },
+        oneose: () => {
+            // 🛠️ من غير الشرط ده، المؤقت ده كان فاضل شغال للأبد حتى بعد
+            // ما تعمل "مغادرة" — بيفتح اشتراك جديد كل 5 ثواني في الخلفية
+            // لغرفة سبت منها، وده جزء من سبب إن "الخروج" كان محتاج ريفرش
+            // فعلي عشان يتم فعلاً.
+            roomListenTimer = setTimeout(() => {
+                if (currentRoom === roomName) listenForPeers(roomName);
+            }, 5000);
+        }
+    });
+}
+
+// 🛠️ الكود القديم كان بس بيحط audio.autoplay = true من غير ما ينادي
+// .play() فعليًا ولا يتعامل مع رفض المتصفح للتشغيل التلقائي. المتصفحات
+// الحديثة (خصوصًا Chrome/Safari) بتمنع تشغيل أي صوت تلقائيًا لو مش جوه
+// نفس اللحظة المباشرة لضغطة المستخدم — وبما إن الصوت البعيد بيوصل بعد
+// شوية عن طريق شبكة WebRTC (مش استجابة مباشرة لضغطة)، المتصفح كان بيرفض
+// التشغيل بصمت من غير أي رسالة، فالنتيجة: مفيش صوت خالص.
+function attachRemoteAudio(peerId, call, remoteStream) {
+    const audio = new Audio();
+    audio.srcObject = remoteStream;
+    audio.autoplay = true;
+    audio.dataset.peerId = peerId;
+    // نضيفه فعليًا للصفحة (مخفي) بدل ما يفضل عنصر معلّق بره الـ DOM —
+    // بيخلي تشغيل الصوت أكثر ثباتًا عبر المتصفحات المختلفة.
+    const container = $('audio-container') || document.body;
+    container.appendChild(audio);
+    call._audioElement = audio;
+
+    const tryPlay = () => audio.play().catch((err) => {
+        console.warn('[Rooms] المتصفح منع التشغيل التلقائي للصوت:', err);
+        // احتياطي: لو المتصفح رفض التشغيل التلقائي، نوري تنبيه واضح
+        // يخلي المستخدم يفعّل الصوت بنفسه بضغطة واحدة (ضغطة مستخدم
+        // مباشرة بتتجاوز منع التشغيل التلقائي دايمًا).
+        showAudioUnlockPrompt();
+    });
+    tryPlay();
+}
+
+let audioUnlockPromptShown = false;
+function showAudioUnlockPrompt() {
+    if (audioUnlockPromptShown) return;
+    audioUnlockPromptShown = true;
+    showToast('اضغط هنا عشان تفعّل الصوت 🔊', 'info');
+    const unlock = () => {
+        document.querySelectorAll('#audio-container audio, #dm-call-audio').forEach(a => { a.play().catch(() => {}); });
+        audioUnlockPromptShown = false;
+        document.removeEventListener('click', unlock);
+        document.removeEventListener('touchstart', unlock);
+    };
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true });
+}
+
+function connectToPeer(peerId, pubkey) {
+    if (activeCalls.has(peerId)) return;
+    if (peerId === myPeerId) return;
+
+    try {
+        const call = peer.call(peerId, localStream);
+        activeCalls.set(peerId, call);
+        peerLastSeen.set(peerId, Date.now());
+        call.on('stream', (remoteStream) => attachRemoteAudio(peerId, call, remoteStream));
+        call.on('close', () => {
+            activeCalls.delete(peerId);
+            announcedPeers.delete(peerId);
+            call._audioElement?.remove();
+            updatePeersList();
+        });
+        call.on('error', () => {
+            activeCalls.delete(peerId);
+            announcedPeers.delete(peerId);
+            call._audioElement?.remove();
+            updatePeersList();
+        });
+        updatePeersList();
+    } catch(e) {
+        console.warn('[Rooms] فشل الاتصال بـ', peerId, e);
+    }
+}
+
+function handleIncomingCall(call) {
+    const peerId = call.peer;
+    if (activeCalls.has(peerId)) {
+        call.close();
+        return;
+    }
+    call.answer(localStream);
+    activeCalls.set(peerId, call);
+    announcedPeers.add(peerId);
+    peerLastSeen.set(peerId, Date.now());
+
+    call.on('stream', (remoteStream) => attachRemoteAudio(peerId, call, remoteStream));
+    call.on('close', () => {
+        activeCalls.delete(peerId);
+        announcedPeers.delete(peerId);
+        call._audioElement?.remove();
+        updatePeersList();
+    });
+    updatePeersList();
+}
+
+function updatePeersList() {
+    const list = $('peers-list');
+    const count = $('peer-count');
+    if (!list) return;
+
+    const peers = Array.from(announcedPeers);
+    if (count) count.textContent = `الأشخاص: ${peers.length + 1}`;
+
+    if (peers.length === 0) {
+        list.innerHTML = '<p class="text-xs text-gray-400">لا يوجد مشاركون آخرون</p>';
+        return;
+    }
+
+    list.innerHTML = peers.map(peerId => {
+        const pubkey = peerToPubkey.get(peerId);
+        const name = pubkey ? escapeHtml(getDisplayName(pubkey)) : 'مشارك';
+        const avatar = pubkey ? avatarHtml(pubkey, 'w-7 h-7 text-xs') : '<i class="fas fa-user-circle text-lg text-gray-400"></i>';
+        return `
+        <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-xl">
+            <div class="flex-shrink-0">${avatar}</div>
+            <span class="text-sm truncate dark:text-white">${name}</span>
+        </div>
+    `;
+    }).join('');
+}
+
+function toggleMute() {
+    if (!localStream) return;
+    isMuted = !isMuted;
+    localStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+    const btn = $('btn-mute');
+    if (btn) {
+        btn.innerHTML = isMuted ? '<i class="fas fa-microphone-slash"></i>' : '<i class="fas fa-microphone"></i>';
+        btn.classList.toggle('bg-red-500/20', isMuted);
+        btn.classList.toggle('text-red-500', isMuted);
+    }
+    showToast(isMuted ? 'كتم المايكروفون 🔇' : 'تفعيل المايكروفون 🎤', 'info');
+}
+
+function startVAD() {
+    // VAD بسيط - تغيير لون المؤشر عند الكلام
+    if (!localStream) return;
+    vadAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = vadAudioContext.createMediaStreamSource(localStream);
+    const analyser = vadAudioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.fftSize);
+
+    function checkAudio() {
+        if (!currentRoom) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        const status = $('vad-status');
+        if (status) {
+            if (avg > 20) {
+                status.textContent = '🔊 تتحدث الآن';
+                status.className = 'text-xs text-green-500';
+            } else {
+                status.textContent = '🔇 ساكن';
+                status.className = 'text-xs text-gray-400';
+            }
+        }
+        requestAnimationFrame(checkAudio);
+    }
+    checkAudio();
+}
 
 // ============================
-// (أداء) تتبّع حالة تحميل الفيد — عشان نقلل طلبات الـ relays
+// 17. اكتشاف الغرف المباشرة
 // ============================
-// أثناء التحميل الأولي (أو "تحميل المزيد")، بتوصل عشرات/مئات البوستات
-// دفعة واحدة. مفيش داعي إننا نفتح subscription منفصل لجلب لايكات كل
-// بوست لوحده وقت الدفعة دي (fetchLikesForNewPost) لأن fetchPastLikesAndDeletes
-// هتجيب نفس البيانات دي مجمّعة وبكفاءة أعلى فور ما الدفعة تخلص (EOSE).
-// feedReady بتبقى true بعد أول تحميل كامل للفيد، فبعدها أي بوست جديد
-// حقيقي (نشر جديد، أو وصل لايف) بياخد fetchLikesForNewPost بتاعه لوحده
-// زي ما هو متوقع.
-let feedReady = false;
 
-// أسماء البوستات اللي جبنالها "لايكات سابقة" قبل كده، عشان دورة إعادة
-// الاشتراك الدورية (كل 30 ثانية) في startReactionSubscription ما تعيدش
-// جلب نفس البيانات القديمة تاني لكل البوستات من الصفر — بس تجيب اللي
-// جديد فعلاً.
-const pastLikesFetchedPostIds = new Set();
+function startRoomDirectory() {
+    if (directorySubscription) {
+        try { directorySubscription.close(); } catch(e) {}
+    }
+
+    // (أداء) زي listenForPeers بالظبط — الاشتراك ده بيتكرر كل 10 ثواين
+    // (شوف oneose تحت)، وأحداث الحضور صلاحيتها ROOM_PRESENCE_TTL_MS بس.
+    // من غير since كان بيجيب أقدم 100 حدث من كل تاريخ الشبكة في كل دورة،
+    // وأغلبها بيترفض فورًا محليًا في فحص age تحت لأنه أصلاً قديم.
+    const since = Math.floor(Date.now() / 1000) - Math.ceil((ROOM_PRESENCE_TTL_MS / 1000) * 2);
+
+    directorySubscription = pool.subscribeMany(RELAYS, [
+        { kinds: [ROOM_EVENT_KIND], limit: 100, since }
+    ], {
+        onevent: (event) => {
+            const roomName = getTagValue(event.tags, 't');
+            if (!roomName) return;
+            const status = getTagValue(event.tags, 'status');
+            if (status !== 'join') return;
+
+            const now = Date.now();
+            const age = now - event.created_at * 1000;
+            if (age > ROOM_PRESENCE_TTL_MS) return;
+
+            if (!discoveredRooms.has(roomName)) {
+                discoveredRooms.set(roomName, { participants: new Set(), lastSeen: now });
+            }
+            const room = discoveredRooms.get(roomName);
+            room.participants.add(event.pubkey);
+            room.lastSeen = now;
+            renderRoomDirectory();
+        },
+        oneose: () => {
+            setTimeout(startRoomDirectory, 10000);
+        }
+    });
+
+    // تنظيف الغرف القديمة كل 30 ثانية
+    if (directoryCleanupInterval) clearInterval(directoryCleanupInterval);
+    directoryCleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [name, room] of discoveredRooms) {
+            if (now - room.lastSeen > ROOM_PRESENCE_TTL_MS) {
+                discoveredRooms.delete(name);
+            }
+        }
+        renderRoomDirectory();
+    }, 30000);
+}
+
+function renderRoomDirectory() {
+    const list = $('live-rooms-list');
+    const empty = $('live-rooms-empty');
+    if (!list || !empty) return;
+
+    const rooms = Array.from(discoveredRooms.entries())
+        .filter(([_, room]) => room.participants.size > 0)
+        .sort((a, b) => b[1].participants.size - a[1].participants.size);
+
+    if (rooms.length === 0) {
+        list.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+    empty.classList.add('hidden');
+
+    list.innerHTML = rooms.map(([name, room]) => `
+        <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-microphone text-accent"></i>
+                <span class="font-medium dark:text-white">${escapeHtml(name)}</span>
+                <span class="text-xs text-gray-400">(${room.participants.size} مشارك)</span>
+            </div>
+            <button onclick="joinDiscoveredRoom('${escapeHtml(name)}')" 
+                    class="bg-accent text-white px-4 py-1.5 rounded-full text-xs font-bold hover:opacity-90 transition">
+                دخول
+            </button>
+        </div>
+    `).join('');
+}
+
+async function joinDiscoveredRoom(roomName) {
+    if (isJoiningRoom) return;
+    // 🛠️ كان بينادي toggleRoom()، واللي بيتعامل مع currentRoom كإشارة
+    // "اخرج" بس (toggle بسيط) — يعني لو انت جوه غرفة بالفعل وضغطت
+    // "دخول" على غرفة تانية من القايمة، كان بيخرّجك من غير ما يدخّلك
+    // الجديدة خالص. joinRoom() نفسها بالفعل بتتعامل صح مع "لو في غرفة
+    // حالية، اخرج منها الأول وبعدين ادخل الجديدة" — فبننادي عليها مباشرة.
+    const input = $('room-input');
+    const btn = $('btn-join-room');
+    if (input) input.value = roomName;
+
+    isJoiningRoom = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'جاري الاتصال...'; }
+
+    try {
+        await joinRoom(roomName);
+    } catch (error) {
+        showToast('فشل الدخول: ' + getErrorMessage(error), 'error');
+        isJoiningRoom = false;
+        if (btn) { btn.disabled = false; btn.textContent = currentRoom ? 'مغادرة' : 'دخول'; }
+    }
+}
+
+function restoreRoomAfterRefresh() {
+    const savedRoom = localStorage.getItem('active_room');
+    if (savedRoom && !currentRoom) {
+        joinRoom(savedRoom).catch(e => {
+            console.warn('[Rooms] فشل استعادة الغرفة:', e);
+            localStorage.removeItem('active_room');
+        });
+    }
+}
 
 // ============================
-// نظام المتابعة (Follow) — NIP-02 Contact List (kind:3)
+// 18. Wake Lock (منع النوم)
 // ============================
-let myContactTags = [];         // الـ tags الكاملة لآخر نسخة من قايمة متابعتي (بنحافظ عليها كاملة عشان مانمسحش حد بالغلط لما ننشر تعديل)
-let myContactsContent = '';     // محتوى آخر kind:3 بتاعي (بيتحفظ زي ما هو)
-const myContacts = new Set();   // pubkeys اللي بتابعهم أنا (مشتقة من myContactTags، للبحث السريع في الواجهة)
-let myContactsLoaded = false;   // هل جبنا قايمة متابعتي من الـ relays قبل كده؟
-const followCountsCache = new Map(); // pubkey -> { following, followers }
 
-// ============================
-// حماية من تكرار الردود/التعليقات
-// ============================
-// لما نبعت رد بنعرضه فورًا محليًا (handleIncomingReply)، وبعدين نفس
-// الرد بيرجعلنا تاني من الـ relay عن طريق اشتراك الردود (reactions.js)
-// — من غير حماية، ده كان بيعرض نفس الرد مرتين. seenReplies بتضمن إن
-// كل event.id يتعالج مرة واحدة بس.
-const seenReplies = new Set();
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('[WakeLock] نشط');
+        }
+    } catch(e) { console.warn('[WakeLock] غير مدعوم'); }
+}
 
-// ============================
-// (فيتشر جديد) الإشعارات — لايكات وردود على منشوراتك
-// ============================
-// كل عنصر: { id, type: 'like'|'reply', postId, fromPubkey, createdAt, read }
-// الأحدث أول العنصر (unshift عند الإضافة).
-let notifications = [];
-let unreadNotifCount = 0;
-const seenNotifIds = new Set();
-const knownFollowers = new Set(); // pubkeys اللي عارفين إنهم بيتابعوك بالفعل — عشان منكررش إشعار "متابعة جديدة"
-let notificationsSubscription = null;
+function releaseWakeLock() {
+    if (wakeLock) {
+        try { wakeLock.release(); } catch(e) {}
+        wakeLock = null;
+        console.log('[WakeLock] محرر');
+    }
+}
 
-// ============================
-// (فيتشر جديد) الرسائل الخاصة (DM) والمكالمات الفردية
-// ============================
-// كل محادثة متخزنة بمفتاح = pubkey الطرف التاني.
-// conversations: pubkey -> { messages: [{id, from, text, createdAt, pending?}], unread: number }
-const conversations = new Map();
-let dmSubscription = null;
-const seenDmIds = new Set();
-let activeChatPubkey = null;   // المحادثة المفتوحة حاليًا (لو فيه)
-let totalUnreadDms = 0;
+// ربط WakeLock بحالة الغرفة
+const origJoinRoom = joinRoom;
+joinRoom = async function(roomName) {
+    await origJoinRoom(roomName);
+    await requestWakeLock();
+};
 
-// مكالمات فردية خارج الغرف — منفصلة تمامًا عن نظام peer بتاع الغرف
-// الجماعية (rooms.js) عشان محدش يتعارض مع التاني.
-let dmPeer = null;
-let dmLocalStream = null;
-let dmActiveCall = null;       // كائن MediaConnection بتاع PeerJS
-let dmCallState = 'idle';      // idle | calling | ringing | in-call
-let dmCallPeerPubkey = null;
-let dmCallPeerId = null;
-let dmCallSubscription = null;
-let dmCallStartTime = null;
-let dmCallTimerInterval = null;
-let dmCallTimeoutId = null;
-let dmIsMuted = false;
-
-// ============================
-// (فيتشر جديد) الزابس (Lightning tips عبر NIP-57)
-// ============================
-const postZaps = new Map();     // postId -> { total: sats, count }
-const seenZapIds = new Set();
-let zapsSubscription = null;
-let zapTargetPostId = null;
-let zapTargetPubkey = null;
-
-// ============================
-// (فيتشر جديد) المحفوظات وقائمة الكتم الشخصية (NIP-51)
-// ============================
-// الاتنين متزامنين عبر الأجهزة (مش تخزين محلي بس) عن طريق قوائم Nostr
-// قياسية (bookmarks: kind 10003, mute list: kind 10000) بتحمل مفتاحك
-// الخاص وتتحدّث بالكامل (استبدال) في كل مرة تضيف/تشيل حاجة.
-const bookmarkedPostIds = new Set();
-const mutedPubkeys = new Set();
-let bookmarksLoaded = false;
-let muteListLoaded = false;
+const origLeaveRoom = leaveRoom;
+leaveRoom = async function() {
+    releaseWakeLock();
+    await origLeaveRoom();
+};
