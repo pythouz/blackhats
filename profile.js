@@ -322,6 +322,17 @@ function updateAvatarsInDom(pubkey) {
         slot.innerHTML = avatarHtml(pubkey, 'w-12 h-12 text-sm');
     });
 
+    // 🆕 صندوق المنشور المُقتبَس جوه بوست الاقتباس (renderQuotedPostBox في
+    // posts.js) — data-pubkey بتاعه هو صاحب المنشور الأصلي، مختلف عن
+    // data-pubkey بتاع الـ .post-card الحاوي ليه (اللي هو صاحب الاقتباس
+    // نفسه)، فمحتاج فحص منفصل زي .reply-item فوق بالظبط.
+    document.querySelectorAll(`.quoted-post-box[data-pubkey="${pubkey}"]`).forEach(box => {
+        const nameEl = box.querySelector('.quoted-author-name');
+        if (nameEl && profile?.name) nameEl.textContent = displayName;
+        const slot = box.querySelector('.avatar-slot');
+        if (slot) slot.innerHTML = avatarHtml(pubkey, 'w-6 h-6 text-[10px]');
+    });
+
     if (pubkey === pk) updateHeaderAvatar();
 }
 
@@ -787,7 +798,7 @@ function loadProfilePosts(pubkey, until) {
             // المستخدمة في الفيد الرئيسي بالظبط.
             if (!postStats.has(event.id)) {
                 initPostState(event.id, event.created_at);
-                postContentMap.set(event.id, { content: displayContent, created_at: event.created_at });
+                postContentMap.set(event.id, { content: resolvePostContentForStorage(event, displayContent), created_at: event.created_at });
             }
             renderProfilePost(event, displayContent);
             scheduleReactionResubscribe();
@@ -816,7 +827,11 @@ function renderProfilePost(event, displayContent) {
     try {
         const time = new Date(event.created_at * 1000).toLocaleString('ar-EG', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' });
         const displayName = getDisplayName(event.pubkey);
-        const contentHtml = renderMediaContent(displayContent !== undefined ? displayContent : event.content);
+        const rawContent = displayContent !== undefined ? displayContent : event.content;
+        // 🆕 نفس منطق renderPost في posts.js بالظبط — شوف تعليقاته هناك.
+        const quotePayload = typeof parseQuotePayload === 'function' ? parseQuotePayload(event, rawContent) : null;
+        const contentHtml = renderMediaContent(quotePayload ? quotePayload.text : rawContent);
+        const quotedBoxHtml = quotePayload && typeof renderQuotedPostBox === 'function' ? renderQuotedPostBox(quotePayload.quoted) : '';
         const div = document.createElement('div');
         div.className = 'post-card bg-white dark:bg-cardDark rounded-3xl p-5 shadow-soft border border-gray-100 dark:border-gray-800 fade-in transition-all duration-200';
         div.dataset.postId = event.id;
@@ -834,12 +849,13 @@ function renderProfilePost(event, displayContent) {
                 </div>
                 ${event.pubkey === pk ? `
                 <div class="flex gap-1 flex-shrink-0">
-                    <button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>
+                    ${quotePayload ? '' : `<button onclick="editPost('${event.id}')" class="text-xs text-blue-500 hover:text-blue-700 transition p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10" title="تعديل"><i class="fas fa-edit"></i></button>`}
                     <button onclick="deletePost('${event.id}')" class="text-xs text-red-500 hover:text-red-700 transition p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10" title="حذف"><i class="fas fa-trash"></i></button>
                 </div>
                 ` : ''}
             </div>
             <div class="post-content text-gray-800 dark:text-gray-200 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base break-words">${contentHtml}</div>
+            ${quotedBoxHtml}
             <div class="post-actions flex items-center gap-4 text-gray-400 text-sm border-t border-gray-100 dark:border-gray-800 pt-3">
                 <button class="like-button flex items-center gap-1 hover:text-red-500 transition" onclick="likePost('${event.id}', '${event.pubkey}')" data-liked="false" data-postid="${event.id}">
                     <i class="far fa-heart"></i> <span>إعجاب</span> <span class="like-count" data-count="0">0</span>
@@ -851,6 +867,9 @@ function renderProfilePost(event, displayContent) {
                     <span class="reply-count" data-count="0">0</span> <span>تعليق</span>
                     <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
                 </button>
+                <button class="quote-button flex items-center gap-1 hover:text-sky-500 transition" onclick="quotePost('${event.id}', '${event.pubkey}')" title="اقتباس مع تعليق">
+                    <i class="fas fa-quote-right"></i>
+                </button>
                 <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${event.id}')" data-postid="${event.id}" title="حفظ">
                     <i class="fas fa-bookmark"></i>
                 </button>
@@ -861,7 +880,7 @@ function renderProfilePost(event, displayContent) {
             <div class="replies-container hidden mt-3 space-y-2" data-replies="${event.id}"></div>
         `;
         container.appendChild(div);
-        fetchProfiles([event.pubkey]);
+        fetchProfiles(quotePayload ? [event.pubkey, quotePayload.quoted.pubkey] : [event.pubkey]);
         addBanButtonToPost(div, event.pubkey);
         processPendingReplies(event.id);
     } catch(err) {
@@ -929,6 +948,9 @@ async function renderProfileRepost(event) {
                     <i class="fas fa-chevron-down text-[10px] reply-toggle-icon transition-transform duration-200"></i>
                 </button>
                 ${repostBtnHtml}
+                <button class="quote-button flex items-center gap-1 hover:text-sky-500 transition" onclick="quotePost('${original.id}', '${original.pubkey}')" title="اقتباس مع تعليق">
+                    <i class="fas fa-quote-right"></i>
+                </button>
                 <button class="bookmark-button flex items-center gap-1 hover:text-accent2 transition" onclick="toggleBookmark('${original.id}')" data-postid="${original.id}" title="حفظ">
                     <i class="fas fa-bookmark"></i>
                 </button>
